@@ -1,0 +1,253 @@
+---
+# Baseline every guest and every hypervisor to a known state: packages, time, logging,
+# the automation user, and — on Proxmox hosts — the ZFS properties that decide whether
+# a pool survives a disk failure.
+#
+# Idempotent and safe to re-run. `playbooks/update.yml` reuses this role with
+# `common_apply_updates: true`, which is the only path that installs upgrades, and it
+# is gated on the maintenance window.
+
+- name: Assert the platform is the one this role was written for
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == "Debian"
+      - ansible_distribution_major_version == "12"
+    fail_msg: >-
+      {{ inventory_hostname }} runs {{ ansible_distribution }}
+      {{ ansible_distribution_major_version }}. Package names, systemd unit names and
+      the ZFS tooling in this role are Debian 12 specifics. Port the role deliberately
+      rather than discovering the differences on a production host.
+
+- name: Read the provisioning marker cloud-init wrote
+  ansible.builtin.stat:
+    path: /etc/viavitae-provisioning
+  register: provisioning_marker
+
+- name: Warn when a host was not created by terraform/modules/proxmox-vm
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }} has no /etc/viavitae-provisioning, so it was not created
+      by Terraform. This role will still configure it, but nothing in the repository
+      knows it exists: it has no VMID allocation, no HA membership, no backup tag and
+      no entry in docs/network-topology.md. Adopt it into Terraform or destroy it.
+  when: not provisioning_marker.stat.exists
+
+- name: Update the apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: "{{ common_apt_cache_valid_time }}"
+
+- name: Install the base package set
+  ansible.builtin.apt:
+    name: "{{ common_base_packages }}"
+    state: present
+    install_recommends: false
+
+- name: Remove packages that are services nobody asked for
+  ansible.builtin.apt:
+    name: "{{ common_remove_packages }}"
+    state: absent
+    purge: true
+
+- name: Apply upgrades when the caller is inside a maintenance window
+  ansible.builtin.apt:
+    upgrade: dist
+    autoremove: true
+    autoclean: true
+  when: common_apply_updates | bool
+
+- name: Set the timezone
+  community.general.timezone:
+    name: "{{ timezone }}"
+  notify: Restart systemd-timesyncd
+
+- name: Configure NTP through systemd-timesyncd
+  ansible.builtin.template:
+    src: timesyncd.conf.j2
+    dest: /etc/systemd/timesyncd.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "/usr/lib/systemd/systemd-timesyncd --check-config 2>/dev/null || /bin/true"
+  when: common_ntp_enabled | bool
+  notify: Restart systemd-timesyncd
+
+- name: Ensure the automation user exists
+  ansible.builtin.user:
+    name: "{{ automation_user }}"
+    shell: /bin/bash
+    groups: "{{ ['sudo', 'adm', 'systemd-journal'] + (['www-data'] if 'proxmox' in group_names else []) }}"
+    append: true
+    create_home: true
+    # No password and no expiry: key-only authentication. A password on an automation
+    # account is a credential that never rotates because nothing forces it to.
+    password: "!"
+    password_lock: true
+    system: false
+    comment: ViaVitae automation
+
+- name: Read the SSH key set Terraform declared
+  ansible.builtin.slurp:
+    src: /etc/viavitae/ssh-authorized-keys
+  register: declared_ssh_keys
+  failed_when: false
+
+- name: Read the SSH key set actually installed
+  ansible.builtin.slurp:
+    src: "/home/{{ automation_user }}/.ssh/authorized_keys"
+  register: installed_ssh_keys
+  failed_when: false
+
+- name: Compare the installed key set with the declared one
+  ansible.builtin.assert:
+    that:
+      - declared | sort == installed | sort
+    fail_msg: >-
+      {{ inventory_hostname }} has an SSH key set that does not match what
+      terraform/modules/proxmox-vm declared.
+      Declared but not installed: {{ (declared | difference(installed)) | length }}
+      — a key was revoked in Terraform and the guest was never rebuilt, because
+      cloud-init writes authorized_keys on first boot only.
+      Installed but not declared: {{ (installed | difference(declared)) | length }}
+      — someone added a key by hand. This is the persistence mechanism that
+      survives every `terraform apply`, and it is why this comparison is
+      bidirectional. Correct `ssh_public_keys` in the environment and rebuild the
+      guest, or remove the undeclared key and record why it was there.
+    success_msg: >-
+      {{ inventory_hostname }}: {{ installed | length }} key(s), all declared.
+    quiet: true
+  vars:
+    declared: "{{ (declared_ssh_keys.content | default('') | b64decode).split('\n') | select | list }}"
+    installed: "{{ (installed_ssh_keys.content | default('') | b64decode).split('\n') | select('match', '^(ssh-|ecdsa-)') | list }}"
+  when:
+    - declared_ssh_keys.content is defined
+
+- name: Report the installed key fingerprints where no declaration exists
+  # The hypervisors are physical: nothing in this repository creates them, so no
+  # Terraform module writes their key set. Rather than pretend otherwise, print
+  # the fingerprints — SHA256 of a public key discloses nothing and is short
+  # enough to compare by eye — so that the run output is the record of what can
+  # log in. group_vars/proxmox.yml sets `allow_undeclared_ssh_keys` to make the
+  # gap explicit and reviewable instead of silent.
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      ssh-keygen -lf "/home/{{ automation_user }}/.ssh/authorized_keys" 2>/dev/null || true
+    executable: /bin/bash
+  register: key_fingerprints
+  changed_when: false
+  when: declared_ssh_keys.content is not defined
+
+- name: Fail on a host with no declared key set
+  ansible.builtin.assert:
+    that:
+      - allow_undeclared_ssh_keys | default(false) | bool
+    fail_msg: >-
+      {{ inventory_hostname }} has no /etc/viavitae/ssh-authorized-keys, so this
+      role cannot verify who can log in. Fingerprints:
+      {{ key_fingerprints.stdout_lines | default([]) }}.
+      If this host is a VM, it was not built by terraform/modules/proxmox-vm —
+      adopt it or destroy it. If it is a physical hypervisor, set
+      `allow_undeclared_ssh_keys: true` in its group_vars with a comment naming
+      the compensating control, so the exception is a decision on the record.
+  when: declared_ssh_keys.content is not defined
+
+- name: Ensure the automation user can escalate without a password
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/90-viavitae-automation
+    owner: root
+    group: root
+    mode: "0440"
+    # `validate` is what makes this safe: a malformed sudoers file that is written
+    # successfully locks out every administrative session, including the one fixing it.
+    validate: "/usr/sbin/visudo -cf %s"
+    content: |
+      # Managed by ansible/roles/common. Edit the role, not this file.
+      Defaults:{{ automation_user }} !requiretty
+      Defaults:{{ automation_user }} logfile="/var/log/sudo-{{ automation_user }}.log"
+      Defaults:{{ automation_user }} log_input, log_output
+      Defaults:{{ automation_user }} iolog_dir=/var/log/sudo-io/%{user}
+      {{ automation_user }} ALL=(ALL) NOPASSWD: ALL
+
+- name: Cap journald so logging cannot fill the root filesystem
+  ansible.builtin.template:
+    src: journald.conf.j2
+    dest: /etc/systemd/journald.conf.d/90-viavitae.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart systemd-journald
+
+- name: Ensure the journald drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# --- Proxmox hosts only ----------------------------------------------------
+#
+# These tasks are the difference between a ZFS pool that survives a disk failure and
+# one that does not. ADR-002 accepted ZFS over Ceph on the strength of them.
+
+- name: Read the current ARC maximum
+  ansible.builtin.slurp:
+    src: /sys/module/zfs/parameters/zfs_arc_max
+  register: zfs_arc_max_current
+  when: "'proxmox' in group_names"
+  failed_when: false
+
+- name: Cap the ARC so the hypervisor's memory budget is real
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/zfs.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by ansible/roles/common. docs/capacity-plan.md reserves
+      # {{ (common_zfs_arc_max_bytes | int / 1073741824) | round | int }} GiB per node
+      # for the ARC out of 256 GiB, leaving 192 GiB for guests. Without this cap ZFS
+      # grows the ARC into the guest allocation and the shortfall appears as VM kills
+      # under load, which reads as an application fault.
+      options zfs zfs_arc_max={{ common_zfs_arc_max_bytes }}
+  when: "'proxmox' in group_names"
+  notify: Note that the ARC cap needs a reboot
+
+- name: Schedule monthly scrubs on every pool
+  ansible.builtin.cron:
+    name: "viavitae zfs scrub"
+    job: >-
+      for p in $(zpool list -H -o name); do
+      zpool scrub "$p"; done
+    minute: "0"
+    hour: "{{ common_zfs_scrub_hour }}"
+    weekday: "{{ common_zfs_scrub_day }}"
+    user: root
+    cron_file: viavitae-zfs
+  when: "'proxmox' in group_names"
+
+- name: Report pools that have not scrubbed recently
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      zpool status | awk '/scan:/ {print}' | grep -v 'scrubbed' || true
+    executable: /bin/bash
+  register: scrub_status
+  changed_when: false
+  when: "'proxmox' in group_names"
+
+- name: Fail when a pool has not completed a scrub this month
+  ansible.builtin.assert:
+    that:
+      - "'scrub repaired' in scrub_status.stdout or 'no errors' in scrub_status.stdout"
+    fail_msg: >-
+      {{ inventory_hostname }} reports: {{ scrub_status.stdout | default('nothing') }}.
+      ADR-002 condition 4 requires monthly scrubs, because a replica that has not been
+      read end-to-end is a replica whose silent corruption is undiscovered — and silent
+      corruption is the failure mode ZFS replication does not detect. Scrub now and
+      re-run; do not proceed with a pool whose integrity is unverified.
+  when:
+    - "'proxmox' in group_names"
+    - scrub_status.stdout is defined
+    - scrub_status.stdout | length > 0

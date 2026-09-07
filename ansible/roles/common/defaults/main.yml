@@ -1,0 +1,42 @@
+---
+# Defaults for the common role. Anything here can be overridden per group or per host;
+# anything that must not be overridden belongs in a task assertion instead.
+
+common_base_packages:
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - gnupg
+  - jq
+  - rsync
+  - vim-nox
+  # Diagnostics that are useless to install during an incident, because the incident
+  # is the first moment anyone notices they are missing.
+  - dnsutils
+  - iproute2
+  - iputils-ping
+  - tcpdump
+  - lsof
+  - htop
+  - netcat-openbsd
+
+common_remove_packages:
+  # An MTA on a guest that never sends mail is a service that can be abused to relay
+  # and a package that needs patching. Alerts leave through Alertmanager, not SMTP.
+  - exim4-base
+  - exim4-daemon-light
+
+common_apply_updates: false
+common_apt_cache_valid_time: 3600
+
+common_journald_system_max_use: "1G"
+common_journald_max_retention_sec: "90day"
+
+# ZFS: the ARC cap is what makes the 1:1 memory commitment honest. Without it ZFS
+# takes memory the guest budget already allocated, and the shortfall appears as random
+# VM kills under load rather than as a memory problem.
+common_zfs_arc_max_bytes: 51539607552   # 48 GiB, per docs/capacity-plan.md
+common_zfs_scrub_day: "Sun"
+common_zfs_scrub_hour: "5"
+
+common_ntp_enabled: true

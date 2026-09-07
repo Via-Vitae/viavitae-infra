@@ -1,0 +1,37 @@
+---
+# Argo CD root application. This is the only Application resource applied manually;
+# everything else is an ApplicationSet or an Application managed by this root.
+#
+# The root app points at k8s/argocd/ and recurses into subdirectories. A manifest
+# that is not under k8s/ is not managed by Argo CD and is therefore not reviewed
+# by the pull-request process.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: viavitae-root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/Via-Vitae/viavitae-infra.git
+    targetRevision: main
+    path: k8s/argocd
+    directory:
+      recurse: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true

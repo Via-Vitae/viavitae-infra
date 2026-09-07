@@ -1,0 +1,67 @@
+---
+# k3s control-plane bootstrap
+#
+# Installs k3s on the first control-plane node and produces the cluster token and
+# kubeconfig that every later node needs. Runs **once**, against `k3s_control_plane`
+# limited to a single host.
+#
+# The k3s version is read from `/etc/viavitae/k3s-version`, which Terraform wrote at
+# first boot. This playbook fails if that file is absent rather than falling back to a
+# role default: a silent default is a second source of truth, and the two disagree on
+# the first upgrade.
+#
+#   ansible-playbook -i inventories/prod/hosts.yml --limit prod-cp-0 playbooks/k3s-bootstrap.yml
+#
+# Always with `--check --diff` first, except where this file says otherwise: a
+# `--check` run that reports no changes on a host that is visibly wrong is the signal
+# that the role has stopped describing reality.
+
+- name: Bootstrap the k3s control plane
+  hosts: k3s_control_plane
+  become: true
+  gather_facts: true
+  # One host at a time. Two control planes bootstrapping simultaneously each believe
+  # they are the first and each create a cluster token, and the second cluster wins
+  # by accident.
+  serial: 1
+
+  pre_tasks:
+    - name: Read the pinned k3s version Terraform wrote
+      ansible.builtin.slurp:
+        src: /etc/viavitae/k3s-version
+      register: k3s_version_file
+      failed_when: false
+
+    - name: Fail rather than guess the k3s version
+      ansible.builtin.assert:
+        that:
+          - k3s_version_file.content is defined
+          - (k3s_version_file.content | b64decode | trim) | length > 0
+        fail_msg: >-
+          /etc/viavitae/k3s-version is missing or empty on {{ inventory_hostname }}.
+          Terraform writes it at first boot from the `k3s_version` variable in
+          terraform/envs/{{ environment_name }}. Do not set a version here: this role
+          has no default on purpose, so that the plan a reviewer approves is the plan
+          that decides what the cluster runs.
+
+    - name: Refuse to bootstrap over an existing cluster without an explicit override
+      ansible.builtin.stat:
+        path: /var/lib/rancher/k3s/server/db
+      register: existing_etcd
+
+    - name: Stop if etcd data already exists
+      ansible.builtin.assert:
+        that:
+          - not existing_etcd.stat.exists or k3s_force_bootstrap | default(false) | bool
+        fail_msg: >-
+          /var/lib/rancher/k3s/server/db already exists on {{ inventory_hostname }}.
+          Bootstrapping over it replaces the cluster's only copy of its state and
+          orphans every workload. If this is genuinely a rebuild, set
+          `-e k3s_force_bootstrap=true` and say why in the pull request; the token and
+          every node registration change as a result.
+
+  roles:
+    - role: k3s
+      vars:
+        k3s_control_node: true
+

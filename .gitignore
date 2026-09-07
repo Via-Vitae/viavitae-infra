@@ -1,0 +1,199 @@
+# viavitae-infra .gitignore
+# Inherited from viavitae-template (Node + Python + Terraform superset) and extended
+# with the infrastructure-specific sections this repository needs: Ansible, SOPS,
+# Kubernetes, Proxmox backups and DR drill artefacts.
+#
+# Never un-ignore a secret, key, state file or environment file. If a value must be
+# committed, it is not a secret and belongs in documentation or a schema.
+#
+# TWO DELIBERATE NEGATIONS BELOW — do not "clean them up":
+#   !.terraform.lock.hcl   provider hash pins; committing them is what makes a plan
+#                          reproducible and what stops a tampered provider binary.
+#   !k8s/secrets/          this directory holds SOPS *configuration* (age public keys
+#                          and creation rules), not plaintext. The generic `secrets/`
+#                          pattern would silently exclude it and break every decrypt.
+
+# --- Secrets and credentials -------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+secrets/
+!k8s/secrets/
+k8s/secrets/**
+!k8s/secrets/sops/
+!k8s/secrets/sops/**
+!k8s/secrets/external-secrets/
+!k8s/secrets/external-secrets/**
+.secrets.baseline
+*.tfvars
+!*.auto.tfvars.example
+# Age and SOPS material: private keys never enter the repository, recipient
+# configuration always does.
+age.key
+age.key.txt
+age-*.key
+*.agekey
+sops-*.json
+*.dec.yaml
+*.dec.yml
+*.dec.json
+*.plain.yaml
+*.plain.yml
+# Cluster and node credentials produced by a bootstrap run.
+kubeconfig
+kubeconfig*
+*.kubeconfig
+admin.conf
+**/ssh/*_rsa
+**/ssh/id_*
+# SOPS-encrypted inventory values (ansible/inventories/**/{group,host}_vars/*.sops.yml)
+# are ciphertext and MUST be committed. Nothing above matches them; if you add a
+# pattern that does, add the matching negation here and verify with:
+#   git check-ignore -v ansible/inventories/prod/group_vars/vault.sops.yml
+
+# --- Terraform and infrastructure state --------------------------------------
+# State can contain credentials and resource identifiers in plaintext.
+.terraform/
+.terraform.lock.hcl
+!.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.plan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+terraform.rc
+.terraformrc
+# Plan output attached to a pull request is an artefact, never a committed file.
+plan.out
+plan.json
+*-plan.txt
+
+# --- Proxmox, backups and DR drill artefacts ---------------------------------
+# A backup is the single most sensitive file class in this repository: it contains
+# every tenant database. No backup format is ever committable, and the DR drill
+# scratch directory is written outside the working tree by design.
+*.vzdump
+*.vma
+*.vma.gz
+*.vma.lzo
+*.vma.zst
+*.tar.zst
+*.qcow2
+*.img
+*.raw
+*.iso
+*.vmdk
+*.ova
+*.dump
+*.sql
+*.sql.gz
+*.backup
+backups/
+backup/**/scratch/
+backup/drills/.drill-state/
+.wal-g/
+.pgpass
+
+# --- Python ------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage/
+coverage.xml
+htmlcov/
+junit.xml
+*.egg-info/
+.eggs/
+build/
+dist/
+wheels/
+pip-wheel-metadata/
+.cache/
+
+# --- Node and frontend -------------------------------------------------------
+node_modules/
+.next/
+out/
+.nuxt/
+.svelte-kit/
+.turbo/
+.npm/
+.yarn/
+.pnp.*
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+.parcel-cache/
+.vite/
+
+# --- Build artefacts ---------------------------------------------------------
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# --- Test and tooling output -------------------------------------------------
+playwright-report/
+test-results/
+k6-summary.json
+*.lcov
+
+# --- Editors and IDEs --------------------------------------------------------
+# Shared run configurations are the one part of .idea/ worth committing.
+.idea/*
+!.idea/runConfigurations/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# --- Operating systems -------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# --- Archives and large binaries ---------------------------------------------
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+*.dmg
+*.iso

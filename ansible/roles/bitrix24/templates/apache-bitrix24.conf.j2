@@ -1,0 +1,18 @@
+# Managed by ansible/roles/bitrix24. Edit the role, not this file.
+#
+# Apache configuration for Bitrix24. The virtual host listens on localhost only;
+# HAProxy terminates TLS and forwards to this port.
+
+<VirtualHost *:{{ bitrix24_http_port }}>
+    ServerName {{ inventory_hostname }}
+    DocumentRoot {{ bitrix24_install_dir }}/public_html
+
+    <Directory {{ bitrix24_install_dir }}/public_html>
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    ErrorLog /var/log/apache2/bitrix24-error.log
+    CustomLog /var/log/apache2/bitrix24-access.log combined
+</VirtualHost>

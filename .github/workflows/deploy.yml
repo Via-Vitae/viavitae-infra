@@ -1,0 +1,727 @@
+name: Deploy
+
+# The only workflow in this repository that holds infrastructure credentials.
+#
+#   plan   — on every pull request and every push to main. Read-only Proxmox token,
+#            no state write, summary posted to the pull request.
+#   apply  — on workflow_dispatch only, behind a GitHub Environment with required
+#            reviewers. Write token. Never runs automatically.
+#   drift  — nightly. Plans with -detailed-exitcode and fails when the running
+#            infrastructure no longer matches committed code.
+#
+# WHAT IS DELIBERATELY NOT HERE
+#   `argocd app sync`. The spec for this workflow asked for "Argo CD sync for k8s".
+#   ADR-004 decides that Kubernetes delivery is pull-based: Argo CD compares the
+#   cluster against Git on its own interval and reconciles. A sync issued from CI
+#   creates a second writer for cluster state, which means the cluster can be in a
+#   condition no Git commit describes — the exact drift GitOps exists to eliminate.
+#   It also gives every credential holder in CI the ability to force-apply without a
+#   commit. CI's job here ends at the VM layer; Argo CD's job begins at the
+#   Kubernetes layer. Argo CD sync status is observed in the Argo CD UI and in the
+#   `argocd-app-health` panel of the cluster dashboard, not driven from a workflow.
+#
+# PLAN FILES NEVER LEAVE THE RUNNER
+#   `terraform plan -out=<file>` writes a binary that contains every attribute value
+#   of every resource, including values Terraform marks sensitive — they are redacted
+#   in the *text* output, not in the binary. Uploading that binary as a workflow
+#   artefact would copy production credentials into GitHub's artefact storage, outside
+#   the EEA, retained for the artefact lifetime, readable by anyone with repository
+#   access. So:
+#     - the binary plan stays in the runner's workspace and is deleted at the end;
+#     - only `terraform show` text output (redacted by Terraform) is posted or
+#       uploaded;
+#     - the apply job re-plans and applies inside the same job, so the plan it applies
+#       is the plan it just produced, and a post-apply plan proves convergence.
+#   The cost is that the plan an approver read on the pull request is not byte-identical
+#   to the plan that is applied. That is accepted, and it is why the post-apply
+#   verification exists and why apply is manual.
+#
+# LEAST-PRIVILEGE TOKEN
+#   `contents: read` at workflow level. The `plan` job escalates to
+#   `pull-requests: write` at job level, to post the summary comment. Nothing else
+#   writes.
+
+on:
+  pull_request:
+    types: ["opened", "synchronize", "reopened", "ready_for_review"]
+  push:
+    branches: ["main"]
+  schedule:
+    # Nightly drift check at 03:15 Europe/Vilnius (01:15 UTC in winter, 00:15 in
+    # summer). Scheduled runs execute against main and never see pull-request secrets.
+    - cron: "15 1 * * *"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to apply. Approval is enforced by the GitHub Environment, not by this workflow."
+        required: true
+        type: choice
+        options: ["global", "dev", "staging", "prod"]
+      confirm:
+        description: "Required for prod: type the environment name again. A mis-click on a dropdown is not an authorisation."
+        required: false
+        type: string
+      reason:
+        description: "Why this apply is happening now. Recorded in the job summary and, for prod, in CHANGELOG.md by the operator."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # One apply at a time per environment. Two concurrent applies against one state file
+  # is how a resource gets created twice or orphaned; the backend lock protects the
+  # state, but not the operator's understanding of what is happening.
+  group: "deploy-${{ github.event.inputs.environment || github.ref }}"
+  cancel-in-progress: false
+
+env:
+  TERRAFORM_VERSION: "1.16.1"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "0"
+  # Redacted text only, and capped: a 4000-line plan in a pull-request comment is
+  # unreadable and gets collapsed by GitHub anyway.
+  PLAN_SUMMARY_MAX_LINES: "400"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # validate-input — refuse an apply for an unknown or unconfirmed environment
+  # ---------------------------------------------------------------------------
+  validate-input:
+    name: Validate apply request
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ${{ fromJSON(vars.RUNNER_LABELS || '["self-hosted","linux","x64","eu-infra"]') }}
+    timeout-minutes: 5
+    steps:
+      - name: Check the requested environment
+        env:
+          # All three inputs are free text or user-selectable, so all three are passed
+          # through the environment. Interpolating `${{ inputs.* }}` straight into a
+          # `run:` block is a script-injection vulnerability: a reason string containing
+          # `$(curl ...)` would execute on a runner that holds the apply credentials.
+          ENV_NAME: ${{ inputs.environment }}
+          CONFIRM: ${{ inputs.confirm }}
+          REASON: ${{ inputs.reason }}
+          ACTOR: ${{ github.actor }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          case "$ENV_NAME" in
+            global|dev|staging|prod) ;;
+            *)
+              echo "::error::'${ENV_NAME}' is not a known environment. This check exists because 'environment:' is interpolated from the input: an unvalidated value would resolve secrets from an environment nobody intended."
+              exit 1 ;;
+          esac
+          if [ -z "$REASON" ]; then
+            echo "::error::A reason is required. An apply with no recorded reason cannot be audited."
+            exit 1
+          fi
+          if [ "$ENV_NAME" = "prod" ] && [ "$CONFIRM" != "prod" ]; then
+            echo "::error::Applying to prod requires confirm=prod. The value given did not match."
+            exit 1
+          fi
+          {
+            echo "## Apply request"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Environment | \`${ENV_NAME}\` |"
+            echo "| Requested by | @${ACTOR} |"
+            echo "| Reason | ${REASON} |"
+            echo "| Commit | \`${COMMIT}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "apply request accepted for ${ENV_NAME}"
+
+  # ---------------------------------------------------------------------------
+  # plan — read-only, every environment, on pull requests and pushes to main
+  # ---------------------------------------------------------------------------
+  plan:
+    name: Plan (${{ matrix.env }})
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ${{ fromJSON(vars.RUNNER_LABELS || '["self-hosted","linux","x64","eu-infra"]') }}
+    timeout-minutes: 40
+    # A dedicated *-plan environment per environment holds a READ-ONLY Proxmox token
+    # and read-only bucket access. The apply token lives in *-apply and is reachable
+    # only from the apply job. Splitting them means a compromised pull-request run
+    # cannot create or destroy infrastructure.
+    environment: ${{ matrix.env }}-plan
+    permissions:
+      contents: read
+      pull-requests: write
+    # Credentials are mapped explicitly rather than left to the environment's automatic
+    # secret injection: an explicit name fails loudly in the assertion step below when
+    # the secret is missing, whereas automatic injection fails deep inside the provider
+    # with a message about an unreachable API endpoint.
+    env:
+      PM_API_URL: ${{ secrets.PM_API_URL }}
+      PM_API_TOKEN_ID: ${{ secrets.PM_API_TOKEN_ID }}
+      PM_API_TOKEN_SECRET: ${{ secrets.PM_API_TOKEN_SECRET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.STATE_BUCKET_ACCESS_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.STATE_BUCKET_SECRET_KEY }}
+      AWS_ENDPOINT_URL_S3: ${{ secrets.STATE_BUCKET_ENDPOINT }}
+      AWS_REGION: ${{ secrets.STATE_BUCKET_REGION }}
+      # libpq variables consumed by the cyrilgdn/postgresql provider in
+      # terraform/envs/{staging,prod}/versions.tf. The provider is configured
+      # entirely from the environment so that no database credential is a Terraform
+      # variable, and therefore none can reach a tfvars file, a plan input listing or
+      # a state export. This Environment holds a **read-only** role.
+      PGHOST: ${{ secrets.PG_HOST }}
+      PGPORT: ${{ secrets.PG_PORT }}
+      PGDATABASE: ${{ secrets.PG_DATABASE }}
+      PGUSER: ${{ secrets.PG_USER }}
+      PGPASSWORD: ${{ secrets.PG_PASSWORD }}
+      PGSSLMODE: "require"
+      # The hashicorp/dns provider has no environment-variable configuration, so its
+      # TSIG secret is the one credential that has to arrive as TF_VAR_. The key is
+      # scoped on the DNS server to the hostnames this environment may create; a key
+      # that can update the whole zone can redirect production.
+      TF_VAR_dns_update_key_secret: ${{ secrets.DNS_UPDATE_KEY_SECRET }}
+    strategy:
+      fail-fast: false
+      matrix:
+        env: ["global", "dev", "staging", "prod"]
+        include:
+          - env: "global"
+            dir: "terraform"
+          - env: "dev"
+            dir: "terraform/envs/dev"
+          - env: "staging"
+            dir: "terraform/envs/staging"
+          - env: "prod"
+            dir: "terraform/envs/prod"
+
+    steps:
+      - name: Refuse to plan a fork pull request with real credentials
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+        run: |
+          set -euo pipefail
+          echo "::error::This is a pull request from a fork. GitHub does not pass secrets to fork pull requests, so this job cannot authenticate to Proxmox or the state bucket. It fails rather than skipping, because a silently skipped plan reads as a clean plan."
+          echo "A maintainer must run the plan manually: Actions -> Deploy -> Run workflow, and paste the summary into the pull request."
+          exit 1
+
+      - name: Verify the plan credentials are present and read-only
+        run: |
+          set -uo pipefail
+          missing=0
+          # The database and DNS credentials exist only for staging and prod, which
+          # are the two roots that declare those providers. Requiring them for global
+          # and dev would fail two jobs that have nothing to authenticate to.
+          extra=""
+          case "${{ matrix.env }}" in
+            staging|prod) extra="PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD TF_VAR_dns_update_key_secret" ;;
+          esac
+          for v in PM_API_URL PM_API_TOKEN_ID PM_API_TOKEN_SECRET \
+                   AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_ENDPOINT_URL_S3 AWS_REGION \
+                   $extra; do
+            if [ -z "${!v:-}" ]; then
+              echo "::error::${v} is empty. It must be defined as a secret on the '${{ matrix.env }}-plan' GitHub Environment."
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          # The plan token must not be the apply token. Both live in this repository's
+          # environment configuration; this assertion is a reminder that a mistake there
+          # is not visible anywhere else.
+          case "$PM_API_TOKEN_ID" in
+            *!ci-plan*|*!plan*) echo "plan token: ${PM_API_TOKEN_ID}" ;;
+            *) echo "::warning::PM_API_TOKEN_ID '${PM_API_TOKEN_ID}' does not look like the read-only plan token. Confirm the '${{ matrix.env }}-plan' environment holds a read-only Proxmox API token, not the apply token." ;;
+          esac
+
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          # The wrapper swallows terraform's stdout so the action can parse it. That
+          # breaks `-out`, hides the real error text, and is the reason so many
+          # plan-comment actions post an empty body.
+          terraform_wrapper: false
+
+      - name: Assert the state endpoint has been configured
+        env:
+          DIR: ${{ matrix.dir }}
+          ENDPOINT: ${{ secrets.STATE_BUCKET_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          placeholder='viavitae-state.example.com'
+          # A backend block cannot interpolate variables, so the endpoint is the one
+          # value in this repository that has to be committed rather than configured.
+          # Failing here says what to do; failing inside the provider is a DNS error
+          # for a domain that does not exist.
+          if grep -qs "$placeholder" "${DIR}/backend.tf"; then
+            echo "::error::${DIR}/backend.tf still contains the placeholder endpoint $placeholder."
+            echo "Replace it with the real S3-compatible endpoint and commit the change. A backend block cannot read a variable, so this cannot be supplied from the Environment."
+            exit 1
+          fi
+          case "${ENDPOINT:-}" in
+            *"$placeholder"*|"")
+              echo "::error::STATE_BUCKET_ENDPOINT is unset or still the placeholder. Define it on the GitHub Environment."
+              exit 1
+              ;;
+          esac
+
+      - name: Initialise
+        run: |
+          set -euo pipefail
+          # The backend IS configured here: a plan has to read the real state, or it
+          # reports a fiction. What it must not do is write, which is what -lock=false
+          # guarantees for a read-only token.
+          terraform -chdir="${{ matrix.dir }}" init -input=false -no-color -reconfigure
+          terraform -chdir="${{ matrix.dir }}" validate -no-color
+
+      - name: Plan
+        id: plan
+        run: |
+          set -uo pipefail
+          dir="${{ matrix.dir }}"
+          plan_file="${RUNNER_TEMP}/${{ matrix.env }}.tfplan"
+          # -lock=false: this token cannot write to the bucket, and a plan does not
+          # modify state. -detailed-exitcode gives 0 = no change, 1 = error,
+          # 2 = changes present, which is what the summary and the drift job key on.
+          terraform -chdir="$dir" plan \
+            -input=false -no-color -lock=false -detailed-exitcode \
+            -out="$plan_file"
+          code=$?
+          if [ "$code" -eq 1 ]; then
+            echo "::error::terraform plan failed for ${{ matrix.env }}."
+            terraform -chdir="$dir" show -no-color "$plan_file" 2>/dev/null | head -100 || true
+            rm -f "$plan_file"
+            exit 1
+          fi
+          echo "exit_code=${code}" >> "$GITHUB_OUTPUT"
+
+          # Redacted TEXT only. The binary plan stays on the runner and is deleted in
+          # the cleanup step; see the header of this file for why.
+          terraform -chdir="$dir" show -no-color "$plan_file" \
+            | head -n "${PLAN_SUMMARY_MAX_LINES}" > "${RUNNER_TEMP}/${{ matrix.env }}-plan.txt"
+          {
+            echo 'summary<<PLAN_EOF'
+            head -n 40 "${RUNNER_TEMP}/${{ matrix.env }}-plan.txt"
+            echo 'PLAN_EOF'
+          } >> "$GITHUB_OUTPUT"
+          echo "plan summary written for ${{ matrix.env }} (exit ${code}: 0=no change, 2=changes)"
+
+      - name: Post the plan summary to the pull request
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          script: |
+            const fs = require("fs");
+            const env = "${{ matrix.env }}";
+            const code = "${{ steps.plan.outputs.exit_code }}";
+            const sha = context.payload.pull_request.head.sha;
+            const path = `${process.env.RUNNER_TEMP}/${env}-plan.txt`;
+            const body = fs.existsSync(path) ? fs.readFileSync(path, "utf8") : "(no plan text produced)";
+            const shape = code === "0" ? "no changes" : code === "2" ? "changes present" : `exit ${code}`;
+            const marker = `<!-- viavitae-infra:plan:${env} -->`;
+            const text = [
+              marker,
+              `### Terraform plan — \`${env}\``,
+              "",
+              `Commit \`${sha.slice(0, 12)}\` · ${shape}`,
+              "",
+              "<details><summary>Plan output (redacted by Terraform, first " +
+                `${process.env.PLAN_SUMMARY_MAX_LINES} lines)</summary>`,
+              "",
+              "```terraform",
+              body,
+              "```",
+              "",
+              "</details>",
+              "",
+              "The binary plan file never leaves the runner: it contains sensitive",
+              "attribute values that are redacted in this text output but not in the",
+              "binary. Apply re-plans inside the approved job.",
+            ].join("\n");
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: text,
+              });
+              core.info(`updated existing plan comment for ${env}`);
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: text,
+              });
+              core.info(`created plan comment for ${env}`);
+            }
+
+      - name: Write the job summary
+        if: always()
+        run: |
+          set -uo pipefail
+          code="${{ steps.plan.outputs.exit_code }}"
+          {
+            echo "### Plan: \`${{ matrix.env }}\`"
+            echo ""
+            case "$code" in
+              0) echo "No changes. Running infrastructure matches committed code." ;;
+              2) echo "**Changes present.** Review the summary below before approving an apply." ;;
+              *) echo "Plan did not complete (exit \`${code:-unknown}\`). This is a failure, not a clean result." ;;
+            esac
+            echo ""
+            if [ -f "${RUNNER_TEMP}/${{ matrix.env }}-plan.txt" ]; then
+              echo '```terraform'
+              head -n 60 "${RUNNER_TEMP}/${{ matrix.env }}-plan.txt"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the redacted plan text
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: plan-${{ matrix.env }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/${{ matrix.env }}-plan.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Delete the binary plan from the runner
+        if: always()
+        run: |
+          set -uo pipefail
+          # Self-hosted runners are persistent. A plan file left in a temp directory is
+          # readable by the next job and by anyone with access to the host.
+          rm -f "${RUNNER_TEMP}/${{ matrix.env }}.tfplan"
+          rm -f "${RUNNER_TEMP}/${{ matrix.env }}-plan.txt"
+          echo "removed plan artefacts for ${{ matrix.env }}"
+
+  # ---------------------------------------------------------------------------
+  # apply — manual, approved, one environment at a time
+  # ---------------------------------------------------------------------------
+  apply:
+    name: Apply (${{ inputs.environment }})
+    if: github.event_name == 'workflow_dispatch'
+    needs: [validate-input]
+    runs-on: ${{ fromJSON(vars.RUNNER_LABELS || '["self-hosted","linux","x64","eu-infra"]') }}
+    timeout-minutes: 90
+    # The *-apply environments carry the required-reviewer protection. Approval is
+    # enforced by GitHub before this job starts, so the plan the operator approves is
+    # produced inside this job and applied from the same workspace.
+    environment: ${{ inputs.environment }}-apply
+    permissions:
+      contents: read
+    env:
+      PM_API_URL: ${{ secrets.PM_API_URL }}
+      PM_API_TOKEN_ID: ${{ secrets.PM_API_TOKEN_ID }}
+      PM_API_TOKEN_SECRET: ${{ secrets.PM_API_TOKEN_SECRET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.STATE_BUCKET_ACCESS_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.STATE_BUCKET_SECRET_KEY }}
+      AWS_ENDPOINT_URL_S3: ${{ secrets.STATE_BUCKET_ENDPOINT }}
+      AWS_REGION: ${{ secrets.STATE_BUCKET_REGION }}
+      # libpq variables consumed by the cyrilgdn/postgresql provider in
+      # terraform/envs/{staging,prod}/versions.tf. The provider is configured
+      # entirely from the environment so that no database credential is a Terraform
+      # variable, and therefore none can reach a tfvars file, a plan input listing or
+      # a state export. This Environment holds a **read-only** role.
+      PGHOST: ${{ secrets.PG_HOST }}
+      PGPORT: ${{ secrets.PG_PORT }}
+      PGDATABASE: ${{ secrets.PG_DATABASE }}
+      PGUSER: ${{ secrets.PG_USER }}
+      PGPASSWORD: ${{ secrets.PG_PASSWORD }}
+      PGSSLMODE: "require"
+      # The hashicorp/dns provider has no environment-variable configuration, so its
+      # TSIG secret is the one credential that has to arrive as TF_VAR_. The key is
+      # scoped on the DNS server to the hostnames this environment may create; a key
+      # that can update the whole zone can redirect production.
+      TF_VAR_dns_update_key_secret: ${{ secrets.DNS_UPDATE_KEY_SECRET }}
+      # Required at apply time only. Uploading cloud-init snippets uses the
+      # provider's SSH transport, which is why no plan job holds this key: a
+      # read-only plan credential with SSH to every node would be a write credential
+      # in everything but name.
+      PM_SSH_USERNAME: ${{ secrets.PM_SSH_USERNAME }}
+      PM_SSH_PRIVATE_KEY: ${{ secrets.PM_SSH_PRIVATE_KEY }}
+    steps:
+      - name: Verify the apply credentials are present
+        run: |
+          set -uo pipefail
+          missing=0
+          # Same environment-conditional set as the plan job, plus the SSH transport
+          # that only an apply needs.
+          extra="PM_SSH_USERNAME PM_SSH_PRIVATE_KEY"
+          case "${{ inputs.environment }}" in
+            staging|prod) extra="$extra PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD TF_VAR_dns_update_key_secret" ;;
+          esac
+          for v in PM_API_URL PM_API_TOKEN_ID PM_API_TOKEN_SECRET \
+                   AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_ENDPOINT_URL_S3 AWS_REGION \
+                   $extra; do
+            if [ -z "${!v:-}" ]; then
+              echo "::error::${v} is empty. It must be defined as a secret on the '${{ inputs.environment }}-apply' GitHub Environment."
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          case "$PM_API_TOKEN_ID" in
+            *!plan*|*!ci-plan*)
+              echo "::error::The apply job received the read-only plan token (${PM_API_TOKEN_ID}). The '${{ inputs.environment }}-apply' environment must hold the write token."
+              exit 1 ;;
+            *) echo "apply token resolved for ${{ inputs.environment }}" ;;
+          esac
+
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          # Apply always runs against main. Applying an unmerged branch is how a
+          # reviewer's plan and the operator's apply diverge.
+          ref: "main"
+
+      - name: Resolve the working directory
+        id: dir
+        env:
+          ENV_NAME: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          case "$ENV_NAME" in
+            global)  d="terraform" ;;
+            dev)     d="terraform/envs/dev" ;;
+            staging) d="terraform/envs/staging" ;;
+            prod)    d="terraform/envs/prod" ;;
+            *) echo "::error::unknown environment"; exit 1 ;;
+          esac
+          if [ ! -d "$d" ]; then
+            echo "::error::${d} does not exist in this checkout."
+            exit 1
+          fi
+          echo "dir=${d}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Initialise
+        run: |
+          set -euo pipefail
+          terraform -chdir="${{ steps.dir.outputs.dir }}" init -input=false -no-color -reconfigure
+
+      - name: Plan for apply
+        id: plan
+        run: |
+          set -uo pipefail
+          dir="${{ steps.dir.outputs.dir }}"
+          plan_file="${RUNNER_TEMP}/apply.tfplan"
+          terraform -chdir="$dir" plan -input=false -no-color -lock=true \
+            -detailed-exitcode -out="$plan_file"
+          code=$?
+          echo "exit_code=${code}" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 1 ]; then
+            echo "::error::plan failed; not applying."
+            rm -f "$plan_file"
+            exit 1
+          fi
+          {
+            echo '### Apply plan (this is what will be applied)'
+            echo '```terraform'
+            terraform -chdir="$dir" show -no-color "$plan_file" | head -n "${PLAN_SUMMARY_MAX_LINES}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$code" -eq 0 ]; then
+            echo "no changes — nothing to apply"
+          fi
+
+      - name: Block a destructive apply that was not announced
+        if: steps.plan.outputs.exit_code == '2' && inputs.environment == 'prod'
+        env:
+          # Never interpolate an input directly into a `run:` block: a reason string
+          # containing `$(...)` or a backtick would execute on the runner. Passing it
+          # through the environment makes the value data, not code. This is the finding
+          # the CodeQL `actions` analysis exists to catch.
+          APPLY_REASON: ${{ inputs.reason }}
+          DIR: ${{ steps.dir.outputs.dir }}
+        run: |
+          set -uo pipefail
+          plan_file="${RUNNER_TEMP}/apply.tfplan"
+          # A destroy or a force-new replacement in prod is irreversible in practice:
+          # the resource is gone before anyone can object. Requiring the word
+          # "irreversible" in the reason is a speed bump, not a control, but it does
+          # mean the operator read what the plan says.
+          destroys=$(terraform -chdir="${DIR}" show -json "$plan_file" 2>/dev/null \
+            | jq '[.resource_changes[]? | select(.change.actions | index("delete"))] | length' || echo "?")
+          replaces=$(terraform -chdir="${DIR}" show -json "$plan_file" 2>/dev/null \
+            | jq '[.resource_changes[]? | select(.change.actions == ["delete","create"] or .change.actions == ["create","delete"])] | length' || echo "?")
+          echo "prod plan: ${destroys} delete(s), ${replaces} replacement(s)"
+          {
+            echo ""
+            echo "**Destructive changes in this plan: ${destroys} delete(s), ${replaces} replacement(s).**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${destroys}" != "0" ] || [ "${replaces}" != "0" ]; then
+            if ! printf '%s' "${APPLY_REASON}" | grep -qiE 'irreversible|destroy|replace'; then
+              echo "::error::This plan destroys or replaces ${destroys}/${replaces} resource(s) in prod. The reason must state that the change is irreversible (or name the destroy/replace) so the approver knows what they approved."
+              rm -f "$plan_file"
+              exit 1
+            fi
+          fi
+
+      - name: Apply
+        if: steps.plan.outputs.exit_code == '2'
+        run: |
+          set -euo pipefail
+          dir="${{ steps.dir.outputs.dir }}"
+          plan_file="${RUNNER_TEMP}/apply.tfplan"
+          # Applying the saved plan file rather than re-planning with -auto-approve
+          # guarantees that what is applied is what was printed in the summary above.
+          terraform -chdir="$dir" apply -input=false -no-color "$plan_file"
+
+      - name: Verify convergence
+        if: always() && steps.plan.outputs.exit_code == '2'
+        run: |
+          set -uo pipefail
+          dir="${{ steps.dir.outputs.dir }}"
+          # A non-empty plan immediately after apply means the provider cannot hold the
+          # desired state: something is fighting Terraform (a Proxmox default, a manual
+          # change, an in-guest agent). This is drift being born, and catching it here
+          # is far cheaper than catching it in the nightly drift run.
+          terraform -chdir="$dir" plan -input=false -no-color -lock=false \
+            -detailed-exitcode -out="${RUNNER_TEMP}/verify.tfplan"
+          code=$?
+          rm -f "${RUNNER_TEMP}/verify.tfplan"
+          if [ "$code" -eq 2 ]; then
+            echo "::error::Post-apply plan is not empty. The environment did not converge; investigate before the next change."
+            exit 1
+          elif [ "$code" -ne 0 ]; then
+            echo "::error::Post-apply verification plan failed (exit ${code})."
+            exit 1
+          fi
+          echo "post-apply plan is empty: state and infrastructure agree."
+
+      - name: Delete the plan files from the runner
+        if: always()
+        run: |
+          set -uo pipefail
+          rm -f "${RUNNER_TEMP}/apply.tfplan" "${RUNNER_TEMP}/verify.tfplan"
+          echo "removed plan artefacts"
+
+  # ---------------------------------------------------------------------------
+  # drift — nightly: does the running infrastructure still match main?
+  # ---------------------------------------------------------------------------
+  drift:
+    name: Drift detection (${{ matrix.env }})
+    if: github.event_name == 'schedule'
+    runs-on: ${{ fromJSON(vars.RUNNER_LABELS || '["self-hosted","linux","x64","eu-infra"]') }}
+    timeout-minutes: 40
+    environment: ${{ matrix.env }}-plan
+    permissions:
+      contents: read
+    env:
+      PM_API_URL: ${{ secrets.PM_API_URL }}
+      PM_API_TOKEN_ID: ${{ secrets.PM_API_TOKEN_ID }}
+      PM_API_TOKEN_SECRET: ${{ secrets.PM_API_TOKEN_SECRET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.STATE_BUCKET_ACCESS_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.STATE_BUCKET_SECRET_KEY }}
+      AWS_ENDPOINT_URL_S3: ${{ secrets.STATE_BUCKET_ENDPOINT }}
+      AWS_REGION: ${{ secrets.STATE_BUCKET_REGION }}
+      # libpq variables consumed by the cyrilgdn/postgresql provider in
+      # terraform/envs/{staging,prod}/versions.tf. The provider is configured
+      # entirely from the environment so that no database credential is a Terraform
+      # variable, and therefore none can reach a tfvars file, a plan input listing or
+      # a state export. This Environment holds a **read-only** role.
+      PGHOST: ${{ secrets.PG_HOST }}
+      PGPORT: ${{ secrets.PG_PORT }}
+      PGDATABASE: ${{ secrets.PG_DATABASE }}
+      PGUSER: ${{ secrets.PG_USER }}
+      PGPASSWORD: ${{ secrets.PG_PASSWORD }}
+      PGSSLMODE: "require"
+      # The hashicorp/dns provider has no environment-variable configuration, so its
+      # TSIG secret is the one credential that has to arrive as TF_VAR_. The key is
+      # scoped on the DNS server to the hostnames this environment may create; a key
+      # that can update the whole zone can redirect production.
+      TF_VAR_dns_update_key_secret: ${{ secrets.DNS_UPDATE_KEY_SECRET }}
+    strategy:
+      fail-fast: false
+      matrix:
+        env: ["global", "dev", "staging", "prod"]
+        include:
+          - env: "global"
+            dir: "terraform"
+          - env: "dev"
+            dir: "terraform/envs/dev"
+          - env: "staging"
+            dir: "terraform/envs/staging"
+          - env: "prod"
+            dir: "terraform/envs/prod"
+    steps:
+      - name: Check out main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: "main"
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Assert the state endpoint has been configured
+        env:
+          DIR: ${{ matrix.dir }}
+          ENDPOINT: ${{ secrets.STATE_BUCKET_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          placeholder='viavitae-state.example.com'
+          # A backend block cannot interpolate variables, so the endpoint is the one
+          # value in this repository that has to be committed rather than configured.
+          # Failing here says what to do; failing inside the provider is a DNS error
+          # for a domain that does not exist.
+          if grep -qs "$placeholder" "${DIR}/backend.tf"; then
+            echo "::error::${DIR}/backend.tf still contains the placeholder endpoint $placeholder."
+            echo "Replace it with the real S3-compatible endpoint and commit the change. A backend block cannot read a variable, so this cannot be supplied from the Environment."
+            exit 1
+          fi
+          case "${ENDPOINT:-}" in
+            *"$placeholder"*|"")
+              echo "::error::STATE_BUCKET_ENDPOINT is unset or still the placeholder. Define it on the GitHub Environment."
+              exit 1
+              ;;
+          esac
+
+      - name: Plan with refresh and compare
+        run: |
+          set -uo pipefail
+          dir="${{ matrix.dir }}"
+          terraform -chdir="$dir" init -input=false -no-color -reconfigure
+          terraform -chdir="$dir" plan -input=false -no-color -lock=false \
+            -detailed-exitcode -out="${RUNNER_TEMP}/drift.tfplan"
+          code=$?
+          {
+            echo "### Drift check: \`${{ matrix.env }}\`"
+            echo ""
+            case "$code" in
+              0) echo "No drift. Running infrastructure matches \`main\`." ;;
+              2)
+                echo "**Drift detected.** The running infrastructure no longer matches \`main\`."
+                echo ""
+                echo '```terraform'
+                terraform -chdir="$dir" show -no-color "${RUNNER_TEMP}/drift.tfplan" \
+                  | head -n 200
+                echo '```'
+                echo ""
+                echo "Either someone changed the infrastructure by hand, or a provider"
+                echo "default moved. Reconcile by pull request — never by editing state."
+                echo "See \`docs/runbooks/proxmox-node-failure.md\` for the manual-change"
+                echo "procedure and \`CONTRIBUTING.md\` for how to file the drift report."
+                ;;
+              *) echo "Drift check failed to run (exit \`${code}\`). An unfinished check is not a clean result." ;;
+            esac
+          } >> "$GITHUB_STEP_SUMMARY"
+          rm -f "${RUNNER_TEMP}/drift.tfplan"
+          # Exit 2 on drift and any other non-zero on error. The scheduled run turns red,
+          # which is the notification: a drift check that only writes a summary nobody
+          # reads is a drift check that does not exist.
+          [ "$code" -eq 0 ]

@@ -1,0 +1,25 @@
+# Managed by ansible/roles/k3s. Edit the role, not this file.
+[Unit]
+Description=Lightweight Kubernetes (k3s) — {{ 'server' if k3s_control_node else 'agent' }}
+Documentation=https://k3s.io
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart={{ k3s_install_dir }}/k3s {% if not k3s_control_node %}agent {% endif %}--config {{ k3s_config_dir }}/config.yaml
+KillMode=process
+Delegate=yes
+# A control plane that restarts without limit hides a crash loop behind a green
+# systemctl status. Ten restarts in five minutes is a failure, not a retry.
+Restart=always
+RestartSec=5s
+StartLimitInterval=300
+StartLimitBurst=10
+LimitNOFILE=1048576
+LimitNPROC=infinity
+LimitCORE=infinity
+TasksMax=infinity
+
+[Install]
+WantedBy=multi-user.target

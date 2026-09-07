@@ -1,0 +1,11 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Restart k3s
+  ansible.builtin.systemd_service:
+    # Whichever unit this node runs. Restarting the wrong one leaves the service
+    # running the old binary and reports success.
+    name: "{{ 'k3s' if k3s_control_node | default(false) else 'k3s-agent' }}"
+    state: restarted

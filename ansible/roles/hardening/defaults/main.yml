@@ -1,0 +1,90 @@
+---
+# Defaults for the hardening role, CIS Level 1 server profile.
+#
+# Level 2 items are listed and deliberately excluded, with the reason: a control that
+# breaks the platform is not a control, it is an outage with a compliance certificate.
+
+hardening_ssh_port: 22
+hardening_ssh_max_auth_tries: 3
+hardening_ssh_login_grace_time: 30
+hardening_ssh_client_alive_interval: 300
+hardening_ssh_client_alive_count_max: 2
+hardening_ssh_allow_groups:
+  - viavitae-admin
+
+hardening_fail2ban_enabled: true
+hardening_fail2ban_bantime: "1h"
+hardening_fail2ban_findtime: "10m"
+hardening_fail2ban_maxretry: 5
+
+hardening_aide_enabled: true
+hardening_aide_cron_hour: "4"
+
+# Kernel parameters. Each one has a failure mode it prevents, recorded in the template
+# rather than here, because the template is what an auditor reads.
+hardening_sysctl:
+  # Ignore ICMP redirects and source-routed packets: both are ways to rewrite a host's
+  # routing table from the network, and the VLAN layout in docs/network-topology.md
+  # makes neither legitimate.
+  net.ipv4.conf.all.accept_redirects: "0"
+  net.ipv4.conf.default.accept_redirects: "0"
+  net.ipv4.conf.all.secure_redirects: "0"
+  net.ipv4.conf.all.send_redirects: "0"
+  net.ipv4.conf.all.accept_source_route: "0"
+  net.ipv4.conf.default.accept_source_route: "0"
+  net.ipv6.conf.all.accept_redirects: "0"
+  net.ipv6.conf.all.accept_source_route: "0"
+  # Reverse-path filtering drops asymmetric spoofed traffic. Strict mode is safe here
+  # because every host has exactly one default route; the dual-homed load balancers are
+  # the exception and get loose mode from host_vars.
+  net.ipv4.conf.all.rp_filter: "1"
+  net.ipv4.conf.default.rp_filter: "1"
+  # Log martians. A packet from an address that should not exist on this segment is the
+  # earliest visible sign of a VLAN misconfiguration or of spoofing.
+  net.ipv4.conf.all.log_martians: "1"
+  # SYN cookies rather than a larger backlog: the backlog protects a service, cookies
+  # protect the host, and the hosts here are not the edge.
+  net.ipv4.tcp_syncookies: "1"
+  net.ipv4.tcp_synack_retries: "2"
+  # Do not forward between interfaces by default. The load balancers are the only hosts
+  # that legitimately forward, and they enable it explicitly.
+  net.ipv4.ip_forward: "0"
+  kernel.kptr_restrict: "2"
+  kernel.dmesg_restrict: "1"
+  kernel.yama.ptrace_scope: "1"
+  kernel.unprivileged_bpf_disabled: "1"
+  net.core.bpf_jit_harden: "2"
+  fs.protected_hardlinks: "1"
+  fs.protected_symlinks: "1"
+  fs.protected_fifos: "2"
+  fs.protected_regular: "2"
+  fs.suid_dumpable: "0"
+  kernel.core_uses_pid: "1"
+
+# Services masked because nothing in this estate uses them and each is a listener or a
+# discovery protocol.
+hardening_masked_services:
+  - avahi-daemon
+  - bluetooth
+  - cups
+  - rpcbind
+  - rpcbind.socket
+
+hardening_umask: "027"
+hardening_login_defs_pass_max_days: 90
+hardening_login_defs_pass_min_days: 1
+hardening_login_defs_pass_warn_age: 14
+
+# CIS Level 2 items deliberately not applied, with the reason recorded so the next
+# reader does not re-add them and break the platform:
+#   1.1.x  Separate /tmp, /var, /home partitions - the guests are VMs with one zvol;
+#          repartitioning means rebuilding every VM for a control that a container
+#          runtime already provides better via read-only root filesystems in Kyverno.
+#   3.4.x  Host firewall on every interface - segmentation is at the router and in
+#          Kubernetes NetworkPolicy (rule X11, k8s/policies/network-policies). A third
+#          firewall layer means three places where an allow rule can be silently
+#          negated, which is how a service becomes unreachable with no error anywhere.
+#   5.2.x  SELinux/AppArmor enforcing - Debian ships AppArmor; k3s and the ZFS zvol
+#          paths produce denials that are indistinguishable from application faults.
+#          Revisit when the estate has an engineer who can own the policy.
+hardening_excluded_controls_documented: true

@@ -1,0 +1,55 @@
+# Managed by ansible/roles/postgres. Edit the role, not this file.
+#
+# The settings below are the baseline for a tenant database on a host with 16 GB RAM.
+# A host with more memory will need tuning beyond what a role can guess; the
+# capacity plan in docs/capacity-plan.md records the assumptions.
+
+listen_addresses = 'localhost,{{ ansible_host | default("127.0.0.1") }}'
+port = {{ postgres_port }}
+
+max_connections = {{ postgres_max_connections }}
+superuser_reserved_connections = {{ postgres_superuser_connection_limit }}
+
+# --- Memory ----------------------------------------------------------------
+shared_buffers = {{ postgres_shared_buffers_mb }}MB
+effective_cache_size = {{ postgres_effective_cache_size_mb }}MB
+work_mem = {{ postgres_work_mem_mb }}MB
+maintenance_work_mem = {{ postgres_maintenance_work_mem_mb }}MB
+
+# --- WAL and archiving -----------------------------------------------------
+wal_level = replica
+max_wal_senders = 10
+wal_keep_size = 1GB
+
+{% if postgres_walg_enabled and pg_role | default('primary') == 'primary' -%}
+archive_mode = on
+archive_command = 'wal-g wal-push %p'
+archive_timeout = 60
+{% else -%}
+archive_mode = off
+{% endif %}
+
+# --- Logging ---------------------------------------------------------------
+logging_collector = on
+log_directory = 'log'
+log_filename = 'postgresql-%Y-%m-%d.log'
+log_rotation_age = 1d
+log_rotation_size = 100MB
+log_truncate_on_rotation = on
+
+log_min_duration_statement = {{ postgres_log_min_duration_statement }}
+log_statement = '{{ postgres_log_statement }}'
+log_line_prefix = '{{ postgres_log_line_prefix }}'
+
+log_connections = on
+log_disconnections = on
+log_lock_waits = on
+log_temp_files = 0
+
+# --- Replication -----------------------------------------------------------
+{% if pg_role | default('primary') == 'standby' -%}
+primary_conninfo = 'host={{ pg_primary_host }} port={{ postgres_port }} user={{ postgres_replication_username }} password={{ postgres_replication_password }}'
+{% endif %}
+
+# --- Security --------------------------------------------------------------
+password_encryption = scram-sha-256

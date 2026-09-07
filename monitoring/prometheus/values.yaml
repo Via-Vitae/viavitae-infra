@@ -1,0 +1,56 @@
+# Helm values for kube-prometheus-stack, deployed by Argo CD into the monitoring
+# namespace. Each environment runs its own stack; there is no shared monitoring
+# cluster, because a monitoring cluster that sees every environment's data is a
+# single pane of glass for an attacker and a single breach for us.
+#
+# The cardinality budget is 8 000 active series per tenant (see capacity-plan.md).
+# Exceeding it is not a warning; it is a capacity-plan input change that must be
+# reviewed before the series are admitted.
+
+prometheus:
+  prometheusSpec:
+    retention: 30d
+    # Downsampled aggregates carry no person-level label and are retained for
+    # one year. The raw series at 30 days are the INFRA-001 F2 retention.
+    retentionSize: "40GB"
+
+    # Resource limits from capacity-plan.md §Trigger table. The monitoring VM
+    # (mon-01) has 16 GB RAM and 8 vCPU; these limits leave headroom for the
+    # other in-cluster components (Loki, Grafana, Alertmanager).
+    resources:
+      requests:
+        cpu: "2"
+        memory: "8Gi"
+      limits:
+        cpu: "6"
+        memory: "14Gi"
+
+    # Remote-write from the hypervisor Prometheus agents (ansible/roles/monitoring-agent)
+    # arrives here. The receiver is configured in the additionalScrapeConfigs.
+    additionalScrapeConfigs:
+      - job_name: "hypervisor-agents"
+        remote_write:
+          - url: "http://prometheus-operated.monitoring.svc:9090/api/v1/write"
+
+    # TSDB is on the monitoring VM's ZFS dataset, which is encrypted at rest
+    # (INFRA-001 M1). The path is the default; the encryption is the point.
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 50Gi
+
+alertmanager:
+  enabled: true
+
+grafana:
+  enabled: false  # Grafana is deployed separately (see monitoring/grafana/)
+
+# node_exporter runs on every host via the monitoring-agent Ansible role, not
+# via this Helm chart. The chart's node_exporter is disabled to avoid a second
+# exporter on the in-cluster nodes.
+nodeExporter:
+  enabled: false

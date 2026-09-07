@@ -1,0 +1,47 @@
+# Managed by ansible/roles/monitoring-agent. Edit the role, not this file.
+#
+# Prometheus in agent mode. Scrapes VLAN 10 hosts and remote-writes to the production
+# Prometheus. The agent holds no local TSDB and has no query endpoint.
+
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+{% if prometheus_remote_write_external_labels is defined %}
+  external_labels:
+{% for key, value in prometheus_remote_write_external_labels.items() %}
+    {{ key }}: "{{ value }}"
+{% endfor %}
+{% endif %}
+
+remote_write:
+  - url: "{{ prometheus_remote_write_url }}"
+    queue_config:
+      max_samples_per_send: 1000
+      batch_send_deadline: 5s
+      max_retries: 3
+
+scrape_configs:
+  - job_name: 'proxmox'
+    static_configs:
+      - targets: ['10.10.10.2:{{ node_exporter_port }}', '10.10.10.3:{{ node_exporter_port }}']
+        labels:
+          segment: 'hypervisor'
+
+  - job_name: 'loadbalancers'
+    static_configs:
+      - targets: ['10.10.10.10:{{ node_exporter_port }}', '10.10.10.11:{{ node_exporter_port }}']
+        labels:
+          segment: 'loadbalancer'
+
+  - job_name: 'ci_runners'
+    static_configs:
+      - targets: ['10.10.10.15:{{ node_exporter_port }}', '10.10.10.16:{{ node_exporter_port }}']
+        labels:
+          segment: 'ci_runner'
+
+  - job_name: 'backup_appliance'
+    static_configs:
+      - targets: ['10.10.10.20:{{ node_exporter_port }}']
+        labels:
+          segment: 'backup'

@@ -1,0 +1,27 @@
+---
+# Defaults for the monitoring-agent role. Anything here can be overridden per group or
+# per host; anything that must not be overridden belongs in a task assertion instead.
+
+# Grafana Alloy. The log agent and metrics forwarder. AGPL-3.0-only, same licensor
+# and licence as Grafana and Loki. Runs on every host; performs redaction at the
+# source (INFRA-001 control M3).
+alloy_version: "1.4.0"
+alloy_install_dir: /usr/local/bin
+alloy_config_dir: /etc/alloy
+alloy_data_dir: /var/lib/alloy
+
+# node_exporter. Apache-2.0. Runs on every host; exposes host metrics on port 9100.
+node_exporter_version: "1.8.1"
+node_exporter_install_dir: /usr/local/bin
+node_exporter_port: 9100
+
+# Prometheus agent mode. Runs on the hypervisors only; scrapes VLAN 10 hosts and
+# remote-writes to the production Prometheus.
+prometheus_agent_version: "2.53.0"
+prometheus_agent_install_dir: /usr/local/bin
+prometheus_agent_config_dir: /etc/prometheus-agent
+prometheus_agent_data_dir: /var/lib/prometheus-agent
+
+# Log redaction. The pipeline is applied before anything leaves the host. The rules
+# are owned jointly by the DPO and Platform (CODEOWNERS gives this role to both).
+alloy_log_redaction_enabled: true

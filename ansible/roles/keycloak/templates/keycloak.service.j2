@@ -1,0 +1,31 @@
+# Managed by ansible/roles/keycloak. Edit the role, not this file.
+
+[Unit]
+Description=Keycloak Identity and Access Management
+After=network.target
+After=postgresql.service
+
+[Service]
+Type=simple
+User=keycloak
+Group=keycloak
+ExecStart={{ keycloak_install_dir }}/bin/kc.sh start --config-file={{ keycloak_config_dir }}/keycloak.conf
+ExecStop=/bin/kill -SIGTERM $MAINPID
+Restart=on-failure
+RestartSec=10
+
+# Security hardening. Keycloak runs as a non-root user and has no write access to
+# the system. The systemd unit enforces this with ProtectSystem and ProtectHome.
+ProtectSystem=full
+ProtectHome=true
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+
+# Environment variables. The database password is passed via the config file, not
+# via environment variables, to avoid it appearing in `ps` output.
+Environment="JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64"
+
+[Install]
+WantedBy=multi-user.target

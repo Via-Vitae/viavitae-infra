@@ -1,0 +1,15 @@
+---
+# Default deny for every namespace. Applied to every platform namespace and every
+# tenant namespace. A workload with no explicit allow rule is unreachable and cannot
+# reach out — including to the internet, which is why E2 exists at node level for
+# image pulls but not for pods.
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress

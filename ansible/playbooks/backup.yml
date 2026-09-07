@@ -1,0 +1,90 @@
+---
+# Backup configuration and verification
+#
+# Configures `vzdump` schedules on the hypervisors, WAL-G archiving on the database
+# hosts, the offsite replication job, and the `backup-check` verification that reports
+# whether the newest copy is recent enough.
+#
+# Also the playbook that runs the weekly level-2 verification: the artefact exists, is
+# the right size and passes its checksum. Level 3 — a real restore — is the quarterly
+# drill in docs/runbooks/dr-drill.md and is not automated here.
+#
+#   ansible-playbook -i inventories/prod/hosts.yml playbooks/backup.yml
+#
+# Always with `--check --diff` first, except where this file says otherwise: a
+# `--check` run that reports no changes on a host that is visibly wrong is the signal
+# that the role has stopped describing reality.
+
+- name: Configure backups
+  hosts: backup_targets
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: backup-check
+
+- name: Configure WAL-G archiving on database hosts
+  hosts: postgres
+  become: true
+  gather_facts: true
+  serial: 1
+
+  roles:
+    - role: wal-g
+
+- name: Configure vzdump schedules on the hypervisors
+  hosts: proxmox
+  become: true
+  gather_facts: true
+  # One at a time. The job definition lives in /etc/pve/jobs.cfg, which pmxcfs
+  # replicates across the cluster; creating the same job from two hosts concurrently
+  # produces two definitions with one identifier and a schedule nobody can predict.
+  serial: 1
+
+  tasks:
+    # /etc/pve is a cluster filesystem owned by pmxcfs, so the schedule is managed
+    # through the API rather than by editing jobs.cfg — a direct edit is reverted, or
+    # worse, applied on one node only. backup/proxmox/vzdump-schedule.md records the
+    # intent in prose for whoever reads the runbook; these tasks are the intent in code.
+    - name: Read the existing cluster jobs
+      ansible.builtin.command:
+        cmd: pvesh get /cluster/jobs --output-format json
+      register: cluster_jobs
+      changed_when: false
+
+    - name: Identify the vzdump jobs this repository owns
+      ansible.builtin.set_fact:
+        owned_vzdump_jobs: >-
+          {{ (cluster_jobs.stdout | from_json)
+             | selectattr('type', 'equalto', 'vzdump')
+             | selectattr('id', 'search', '^viavitae-')
+             | list }}
+
+    - name: Create the daily schedule when it does not exist
+      ansible.builtin.command:
+        cmd: >-
+          pvesh create /cluster/jobs --type vzdump --id viavitae-daily
+          --schedule '{{ vzdump_daily_schedule }}'
+          --storage '{{ vzdump_storage }}'
+          --mode snapshot --compress zstd
+          --all {{ 1 if vzdump_all_guests else 0 }}
+          --retention-daily {{ backup_retention.daily }}
+          --retention-weekly {{ backup_retention.weekly }}
+      when: owned_vzdump_jobs | selectattr('id', 'equalto', 'viavitae-daily') | list | length == 0
+      register: vzdump_created
+      changed_when: vzdump_created.rc == 0
+
+    - name: Fail on a schedule that has drifted from the committed one
+      ansible.builtin.assert:
+        that:
+          - item.schedule == vzdump_daily_schedule
+        fail_msg: >-
+          Job {{ item.id }} runs at '{{ item.schedule }}' but this inventory declares
+          '{{ vzdump_daily_schedule }}'. Someone changed it in the Proxmox UI. Fix the
+          cluster or fix the inventory and say why in the pull request; a schedule that
+          differs between the cluster and Git means the retention guarantee in
+          README.md is not the one in force.
+      loop: "{{ owned_vzdump_jobs }}"
+      loop_control:
+        label: "{{ item.id }}"
+

@@ -1,0 +1,37 @@
+# Managed by ansible/roles/hardening. Edit the role, not this file.
+[DEFAULT]
+bantime  = {{ hardening_fail2ban_bantime }}
+findtime = {{ hardening_fail2ban_findtime }}
+maxretry = {{ hardening_fail2ban_maxretry }}
+# Ban with nftables rather than iptables-legacy: Debian 12 ships nftables, and a ban
+# written to a backend the host is not using is a ban that does nothing while the log
+# says it worked.
+banaction = nftables[type=multiport]
+backend   = systemd
+# The management VLAN is small and every address on it is known. Ignoring it means a
+# legitimate administrator typing a wrong passphrase five times is not locked out of the
+# platform during an incident, and the trade-off is accepted because that VLAN is not
+# reachable from any other segment (rule X11).
+ignoreip  = 127.0.0.1/8 ::1 10.10.10.0/24
+
+[sshd]
+enabled  = true
+port     = {{ hardening_ssh_port }}
+mode     = aggressive
+# `aggressive` also catches the attempts that fail before authentication, which is most
+# of them against a key-only host, and is therefore the only mode that produces a ban
+# rather than a log line.
+maxretry = {{ hardening_fail2ban_maxretry }}
+
+[sshd-ddos]
+enabled  = true
+maxretry = 3
+
+{% if 'keycloak' in group_names %}
+# Keycloak's own brute-force detection works at the realm level and locks the account,
+# which is a denial-of-service against a known username. fail2ban works at the address
+# level, which is the one that matters for credential stuffing across many accounts.
+# Both are enabled because they stop different things.
+[nginx-http-auth]
+enabled = false
+{% endif %}

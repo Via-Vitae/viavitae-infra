@@ -1,0 +1,46 @@
+# SOPS-encrypted variables for `prod` — TEMPLATE, NOT YET ENCRYPTED.
+#
+# This file is committed as ciphertext in normal operation. What is committed here is
+# the *shape*: the plaintext keys with placeholder values, so that a reviewer can see
+# what the environment needs and `ansible-lint` can parse it.
+#
+# To produce the real file:
+#
+#   1. Fill in the values below.
+#   2. sops --encrypt --in-place ansible/inventories/prod/group_vars/vault.sops.yml
+#   3. Verify: sops file-status ansible/inventories/prod/group_vars/vault.sops.yml
+#      must report the file as encrypted. CI asserts this, so an unencrypted commit
+#      fails the build rather than leaking.
+#   4. Shred the plaintext working copy. Do not leave it in a scratch directory:
+#      `find / -name '*.plain.yaml'` is part of the state-hygiene gate for a reason.
+#
+# `.sops.yaml` at the repository root defines the age recipients for this path. The
+# community.sops vars plugin decrypts it at runtime; if `vars_plugins_enabled` in
+# ansible.cfg is edited and that plugin is dropped, these variables resolve to
+# ciphertext and are then written to the guest — which is why that setting is
+# commented in ansible.cfg.
+
+# PostgreSQL: the provisioner role Terraform connects as, and the replication role.
+# Created by roles/postgres; never by Terraform (ADR-003 decision 3).
+pg_provisioner_password: "REPLACE_ME_THEN_SOPS_ENCRYPT"
+pg_replication_password: "REPLACE_ME_THEN_SOPS_ENCRYPT"
+pg_app_role_passwords: {}
+
+# Keycloak bootstrap administrator. Rotated by roles/keycloak after first run, so
+# this value is only ever used once, on a machine that does not yet exist.
+keycloak_bootstrap_admin_password: "REPLACE_ME_THEN_SOPS_ENCRYPT"
+
+# WAL-G and the offsite replica: bucket credentials, not bucket names. The names are
+# in Terraform outputs and are not secret.
+wal_g_s3_access_key: "REPLACE_ME_THEN_SOPS_ENCRYPT"
+wal_g_s3_secret_key: "REPLACE_ME_THEN_SOPS_ENCRYPT"
+
+# MinIO on the monitoring VM: one access key per consumer, so that a leaked Loki key
+# can be revoked without touching Prometheus.
+minio_admin_access_key: "REPLACE_ME_THEN_SOPS_ENCRYPT"
+minio_admin_secret_key: "REPLACE_ME_THEN_SOPS_ENCRYPT"
+
+# GitHub Actions runner registration. Scoped to this repository and rotated on a
+# schedule, because a runner token is a credential that can execute code on a host
+# that holds production credentials.
+github_runner_registration_token: "REPLACE_ME_THEN_SOPS_ENCRYPT"

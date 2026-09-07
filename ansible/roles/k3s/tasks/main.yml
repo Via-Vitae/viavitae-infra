@@ -1,0 +1,172 @@
+---
+# Install the pinned k3s release, write the node configuration, and start the service.
+#
+# The version comes from the guest, written by Terraform at first boot. This role fails
+# rather than defaults, because a role default is invisible in the plan a reviewer
+# approves and is the mechanism by which an environment ends up running a version nobody
+# chose.
+
+- name: Read the pinned k3s version
+  ansible.builtin.slurp:
+    src: /etc/viavitae/k3s-version
+  register: k3s_version_file
+  failed_when: false
+
+- name: Fail when the version was not declared by Terraform
+  ansible.builtin.assert:
+    that:
+      - k3s_version_file.content is defined
+      - k3s_version_file.content | b64decode | trim | length > 0
+    fail_msg: >-
+      /etc/viavitae/k3s-version is missing on {{ inventory_hostname }}. Terraform writes
+      it at first boot; this role has no default version on purpose. Recreate the VM with
+      terraform apply, or set the file by hand and record why in the pull request.
+
+- name: Record the version this host will run
+  ansible.builtin.set_fact:
+    k3s_version: "{{ k3s_version_file.content | b64decode | trim }}"
+
+- name: Read the node role
+  ansible.builtin.slurp:
+    src: /etc/viavitae/k3s-role
+  register: k3s_role_file
+
+- name: Assert the role matches what the playbook intends
+  ansible.builtin.assert:
+    that:
+      - (k3s_role_file.content | b64decode | trim) == ('control_plane' if k3s_control_node else 'worker')
+    fail_msg: >-
+      /etc/viavitae/k3s-role says
+      '{{ k3s_role_file.content | b64decode | trim }}' but this play was told
+      k3s_control_node={{ k3s_control_node }}. A control-plane node installed as a
+      worker is not a member of etcd, so the ADR-002 quorum arithmetic in
+      terraform/modules/k3s-node no longer describes the cluster.
+
+- name: Read the API VIP, if this cluster has one
+  ansible.builtin.slurp:
+    src: /etc/viavitae/k3s-api-vip
+  register: k3s_api_vip_file
+  failed_when: false
+
+- name: Fetch the published checksums for this release
+  ansible.builtin.get_url:
+    url: "{{ k3s_download_base_url }}/{{ k3s_version }}/sha256sum.txt"
+    dest: "/tmp/k3s-{{ k3s_version }}-sha256sum.txt"
+    mode: "0600"
+    checksum: "sha256:{{ k3s_release_checksum | default(omit) }}"
+  register: k3s_checksums
+  retries: 3
+  delay: 5
+  until: k3s_checksums is succeeded
+
+- name: Download the pinned binary
+  ansible.builtin.get_url:
+    url: "{{ k3s_download_base_url }}/{{ k3s_version }}/k3s"
+    dest: "/tmp/k3s-{{ k3s_version }}"
+    mode: "0755"
+    # `checksum` from the file we just fetched. Verifying a binary against a checksum
+    # fetched from the same URL is not verification, so the checksum file is pinned by
+    # `k3s_release_checksum` where the inventory provides it, and the pair is compared
+    # against the value published in the release notes at review time.
+    checksum: "sha256:{{ lookup('file', '/tmp/k3s-' + k3s_version + '-sha256sum.txt').split()[0] }}"
+  register: k3s_binary
+  retries: 3
+  delay: 5
+  until: k3s_binary is succeeded
+
+- name: Confirm the binary matches the published checksum for this exact version
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      grep -E " k3s$" "/tmp/k3s-{{ k3s_version }}-sha256sum.txt"
+      | sha256sum -c - <<< "$(sha256sum /tmp/k3s-{{ k3s_version }} | awk '{print $1}')  k3s"
+    executable: /bin/bash
+  register: k3s_verify
+  changed_when: false
+  failed_when: k3s_verify.rc != 0
+
+- name: Install the binary
+  ansible.builtin.copy:
+    src: "/tmp/k3s-{{ k3s_version }}"
+    dest: "{{ k3s_install_dir }}/k3s"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart k3s
+
+- name: Remove the downloaded artefacts
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/tmp/k3s-{{ k3s_version }}"
+    - "/tmp/k3s-{{ k3s_version }}-sha256sum.txt"
+
+- name: Ensure the configuration and data directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    # 0700 on the config directory: the token is in there, and the token joins nodes to
+    # the cluster, which is to say it is a credential for the control plane.
+    mode: "{{ '0700' if 'config' in item or 'rancher' in item else '0755' }}"
+  loop:
+    - "{{ k3s_config_dir }}"
+    - "{{ k3s_data_dir }}"
+    - /etc/cni/net.d
+    - /opt/cni/bin
+
+- name: Write the node configuration
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ k3s_config_dir }}/config.yaml"
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart k3s
+
+- name: Write the systemd unit
+  ansible.builtin.template:
+    src: k3s.service.j2
+    dest: "/etc/systemd/system/{{ 'k3s' if k3s_control_node else 'k3s-agent' }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart k3s
+
+- name: Enable and start the service
+  ansible.builtin.systemd_service:
+    name: "{{ 'k3s' if k3s_control_node else 'k3s-agent' }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Wait for the node to register
+  ansible.builtin.command:
+    cmd: "{{ k3s_install_dir }}/k3s kubectl get node {{ inventory_hostname }} --no-headers"
+  register: node_registered
+  until: node_registered.rc == 0 and 'NotReady' not in node_registered.stdout
+  retries: 30
+  delay: 10
+  changed_when: false
+  when: k3s_control_node
+
+- name: Report the running version so it can be compared with the declared one
+  ansible.builtin.command:
+    cmd: "{{ k3s_install_dir }}/k3s --version"
+  register: k3s_reported_version
+  changed_when: false
+
+- name: Fail when the running version is not the declared version
+  ansible.builtin.assert:
+    that:
+      - k3s_version in k3s_reported_version.stdout
+    fail_msg: >-
+      {{ inventory_hostname }} reports '{{ k3s_reported_version.stdout_lines | first }}'
+      but the declared version is {{ k3s_version }}. An old binary is still installed, or
+      the service did not restart. This is the drift the nightly job in deploy.yml exists
+      to catch, and catching it here is cheaper.

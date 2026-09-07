@@ -1,0 +1,71 @@
+---
+# PostgreSQL installation and tenant roles
+#
+# Installs and configures PostgreSQL on the `postgres` group, enables WAL archiving with
+# WAL-G, creates the provisioner role Terraform connects as, the migration role that
+# owns tenant schemas, and sets the passwords for the `app_<slug>` roles Terraform
+# created without one.
+#
+# This is the playbook that makes ADR-003 decision 3 real: Terraform creates schemas and
+# roles and never a credential; the credential is generated here, from SOPS-encrypted
+# inventory, inside the guest, and never leaves it.
+#
+#   ansible-playbook -i inventories/prod/hosts.yml --limit postgres playbooks/postgres.yml
+#
+# Always with `--check --diff` first, except where this file says otherwise: a
+# `--check` run that reports no changes on a host that is visibly wrong is the signal
+# that the role has stopped describing reality.
+
+- name: Install and configure PostgreSQL
+  hosts: postgres
+  become: true
+  gather_facts: true
+  serial: 1
+
+  pre_tasks:
+    - name: Read the instance purpose Terraform declared
+      ansible.builtin.slurp:
+        src: /etc/viavitae/pg-purpose
+      register: pg_purpose_file
+
+    - name: Fail on a host Terraform did not describe
+      ansible.builtin.assert:
+        that:
+          - (pg_purpose_file.content | b64decode | trim) in ['tenants', 'keycloak', 'bitrix24']
+        fail_msg: >-
+          /etc/viavitae/pg-purpose on {{ inventory_hostname }} is not one of tenants,
+          keycloak or bitrix24. Tuning, retention and WAL archiving all depend on it,
+          and a host without one gets whatever the role defaults happen to be.
+
+    - name: Refuse to run against a bitrix24 instance without the ADR-007 approvals
+      ansible.builtin.assert:
+        that:
+          - bitrix24_legal_review_approved | default(false) | bool
+          - bitrix24_dpia_approved | default(false) | bool
+        fail_msg: >-
+          This host carries a bitrix24-purpose instance in production. ADR-007
+          conditions 7 and 8 require an approved legal review and an approved
+          INFRA-002 DPIA. Pass `-e bitrix24_legal_review_approved=true
+          -e bitrix24_dpia_approved=true` only once both exist and are referenced in
+          the Bitrix24 entry of terraform.tfvars.
+      when:
+        - (pg_purpose_file.content | b64decode | trim) == 'bitrix24'
+        - environment_name == 'prod'
+
+  roles:
+    - role: postgres
+    - role: wal-g
+      when: (pg_purpose_file.content | b64decode | trim) == 'tenants'
+
+  post_tasks:
+    - name: Report the instance's replication and archiving state
+      ansible.builtin.command:
+        cmd: psql -Atc "select pg_is_in_recovery(), current_setting('archive_mode')"
+      become_user: postgres
+      register: pg_state
+      changed_when: false
+
+    - name: Show the state so the operator sees it in the run output
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: in_recovery/archive_mode = {{ pg_state.stdout }}"
+

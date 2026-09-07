@@ -1,0 +1,55 @@
+---
+# ApplicationSet for platform workloads. Generates one Application per
+# (environment, component) pair from the template below.
+#
+# The generators list the environments and components explicitly rather than
+# discovering them from the filesystem, because an entry that appears here but
+# not in the filesystem is a deployment that points at nothing, and an entry that
+# appears in the filesystem but not here is a deployment that is not managed.
+#
+# Each component (api, web) gets its own Application per environment because an
+# Argo CD Application targets a single destination namespace. The api component
+# deploys to the `api` namespace; the web component deploys to the `web`
+# namespace. Both namespaces are created by k8s/namespaces/ and whitelisted in
+# the platform AppProject (k8s/argocd/projects/platform.yaml).
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: platform
+  namespace: argocd
+spec:
+  generators:
+    - matrix:
+        generators:
+          - list:
+              elements:
+                - environment: dev
+                - environment: staging
+                - environment: prod
+          - list:
+              elements:
+                - component: api
+                  namespace: api
+                - component: web
+                  namespace: web
+
+  template:
+    metadata:
+      name: "platform-{{component}}-{{environment}}"
+    spec:
+      project: platform
+
+      source:
+        repoURL: https://github.com/Via-Vitae/viavitae-infra.git
+        targetRevision: main
+        path: "k8s/platform/{{environment}}/{{component}}"
+
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{namespace}}"
+
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true

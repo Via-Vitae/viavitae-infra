@@ -1,0 +1,23 @@
+# SOPS configuration for the entire repository.
+#
+# This file must be at the repository root, not in k8s/secrets/, because SOPS
+# resolves configuration by walking up from the encrypted file's directory. A
+# .sops.yaml in k8s/secrets/ cannot govern ansible/inventories/**/*.sops.yml.
+#
+# The age recipients below are placeholders. Replace them with the actual public
+# keys of the operators who hold the private half. The private keys must never
+# be committed.
+
+creation_rules:
+  # Encrypt everything under ansible/inventories/**/group_vars/vault.sops.yml
+  # with the age key of the platform team.
+  - path_regex: ansible/inventories/.*/group_vars/vault\.sops\.yml$
+    age: age1platformteamplaceholder000000000000000000000000000
+
+  # Encrypt everything under k8s/secrets/** with the age key of the platform team.
+  - path_regex: k8s/secrets/.*\.sops\.yaml$
+    age: age1platformteamplaceholder000000000000000000000000000
+
+  # Encrypt Terraform variable files with the age key of the platform team.
+  - path_regex: terraform/.*\.sops\.tfvars$
+    age: age1platformteamplaceholder000000000000000000000000000

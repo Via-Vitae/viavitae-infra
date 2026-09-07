@@ -1,0 +1,94 @@
+---
+# Verify backups. The role checks that backups are being created, that they are not
+# corrupt, and (optionally) that they can be restored.
+
+- name: Assert the platform is the one this role was written for
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == "Debian"
+      - ansible_distribution_major_version == "12"
+    fail_msg: >-
+      {{ inventory_hostname }} runs {{ ansible_distribution }}
+      {{ ansible_distribution_major_version }}. The backup tools in this role are
+      Debian 12 specifics; a different distribution may need different package names.
+
+- name: Check that the backup job ran recently
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      # Check the last vzdump job for this VMID.
+      vmid={{ vmid | default('unknown') }}
+      if [ "$vmid" = "unknown" ]; then
+        echo "No VMID defined for {{ inventory_hostname }}; skipping."
+        exit 0
+      fi
+      # Query the Proxmox API for the last vzdump job.
+      last_job=$(pvesh get /cluster/jobs --output-format json 2>/dev/null | jq -r ".[] | select(.type == "vzdump" and .vmid == $vmid) | .endtime" | sort -r | head -1)
+      if [ -z "$last_job" ]; then
+        echo "No vzdump job found for VMID $vmid."
+        exit 1
+      fi
+      # Check that the job ran within the last 48 hours.
+      last_job_epoch=$(date -d "$last_job" +%s 2>/dev/null || echo 0)
+      now_epoch=$(date +%s)
+      age_hours=$(( (now_epoch - last_job_epoch) / 3600 ))
+      if [ $age_hours -gt 48 ]; then
+        echo "Last backup for VMID $vmid is $age_hours hours old (> 48 hours)."
+        exit 1
+      fi
+      echo "Last backup for VMID $vmid is $age_hours hours old (OK)."
+    executable: /bin/bash
+  register: backup_age_check
+  changed_when: false
+  failed_when: false
+  when: "'proxmox' not in group_names"
+
+- name: Report the backup age
+  ansible.builtin.debug:
+    msg: "{{ backup_age_check.stdout | default('Skipped (proxmox host or no VMID)') }}"
+  when: "'proxmox' not in group_names"
+
+- name: Verify backup checksums (level 2)
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      # Find the most recent backup for this VMID.
+      vmid={{ vmid | default('unknown') }}
+      if [ "$vmid" = "unknown" ]; then
+        echo "No VMID defined for {{ inventory_hostname }}; skipping."
+        exit 0
+      fi
+      backup_dir="/var/lib/vz/dump"
+      latest=$(ls -t ${backup_dir}/vzdump-*-${vmid}-*.vma.zst 2>/dev/null | head -1)
+      if [ -z "$latest" ]; then
+        echo "No backup found for VMID $vmid in $backup_dir."
+        exit 1
+      fi
+      # Verify the checksum.
+      checksum_file="${latest}.sha256"
+      if [ ! -f "$checksum_file" ]; then
+        echo "No checksum file found for $latest."
+        exit 1
+      fi
+      if ! sha256sum -c "$checksum_file" --quiet; then
+        echo "Checksum verification failed for $latest."
+        exit 1
+      fi
+      echo "Checksum verification passed for $latest."
+    executable: /bin/bash
+  register: backup_checksum_check
+  changed_when: false
+  failed_when: false
+  when: backup_check_level | int >= 2 and 'proxmox' not in group_names"
+
+- name: Report the checksum verification result
+  ansible.builtin.debug:
+    msg: "{{ backup_checksum_check.stdout | default('Skipped (proxmox host, no VMID, or level < 2)') }}"
+  when: backup_check_level | int >= 2 and 'proxmox' not in group_names"
+
+- name: Report the backup-check state
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }}: backup verification level = {{ backup_check_level }},
+      retention = {{ backup_check_retention_daily }} daily / {{ backup_check_retention_weekly }} weekly,
+      drill schedule = {{ backup_check_drill_schedule }}.

@@ -1,0 +1,258 @@
+name: Bug report
+description: Report infrastructure drift, a failed provision, an outage or a policy regression. For a security vulnerability, use the private disclosure process in SECURITY.md instead.
+title: "bug(<scope>): "
+labels: ["bug", "triage"]
+projects: ["Via-Vitae/1"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Stop — is this a security vulnerability?
+
+        **Do not file a public issue for a security problem.** Public disclosure before a
+        fix is deployed puts users at risk, and personal data may be involved.
+
+        Report privately to **security@viavitae.com**, or use *Security* → *Report a
+        vulnerability* on the repository. Acknowledgement is within 24 hours and triage
+        within 72 hours. See [SECURITY.md](../../SECURITY.md).
+
+        This includes: a Proxmox API token or kubeconfig exposure, a firewall or network
+        policy that no longer denies what it should, broken isolation between tenants, a
+        secret committed to history, a Terraform state file that leaked, an unencrypted
+        backup, and any incident where personal data in logs, metrics or backups may have
+        been disclosed. If you are unsure whether it is a security issue, treat it as one
+        and report privately.
+
+        **Active outage?** Do not wait for triage of this issue. Page the on-call engineer
+        and work the relevant runbook in `docs/runbooks/` first; file this report afterwards
+        as the record.
+
+  - type: markdown
+    attributes:
+      value: |
+        ### Before you file
+
+        - Search existing issues, including closed ones. Add your evidence to an existing
+          report rather than opening a duplicate.
+        - Confirm the defect reproduces on the latest `main`, not on an older tag.
+        - **Scrub personal data from everything you paste.** Logs, screenshots, request
+          bodies, database rows and URLs may contain names, email addresses, phone
+          numbers, donation amounts, parish affiliation or health information. Redact them
+          before submitting. An issue is public within the organisation and is indexed;
+          personal data pasted into one becomes a separate GDPR incident to remediate.
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: Your assessment. The security team assigns the final severity during triage using CVSS v3.1.
+      options:
+        - "critical — service down, data loss, data exposure, or no safe way to use the feature"
+        - "high — major feature broken, no reasonable workaround"
+        - "medium — feature impaired, a workaround exists"
+        - "low — cosmetic, minor inconvenience, or a documentation error"
+    validations:
+      required: true
+
+  - type: input
+    id: repository
+    attributes:
+      label: Affected repository
+      description: The repository where the defect lives.
+      placeholder: "Via-Vitae/viavitae-infra"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Affected version
+      description: Commit SHA of this repository, plus the deployed version of the affected component (Terraform, provider, k3s, PostgreSQL, Argo CD, Kyverno).
+      placeholder: "v1.2.0 / 3f9a1c2 / bpg-proxmox 0.112.0 / k3s v1.31.4+k3s1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - "production"
+        - "staging"
+        - "dev"
+        - "global (shared Proxmox pools and VMID policy)"
+        - "all environments"
+        - "CI"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Affected layer
+      description: Which ownership boundary the defect sits on. This routes the issue to the right team and tells the triager whether Terraform, Ansible or Argo CD is the writer.
+      options:
+        - "terraform — compute, VMID, network identity, state"
+        - "ansible — in-guest configuration, hardening, patching"
+        - "kubernetes — namespace, workload, policy, ingress"
+        - "argocd — GitOps delivery, application drift"
+        - "network — VLAN, firewall, DNS, load balancer"
+        - "database — PostgreSQL, schema, replication, WAL-G"
+        - "identity — Keycloak, SSO, RBAC, certificates"
+        - "monitoring — metrics, logs, alerts, dashboards"
+        - "backup — snapshot, offsite copy, restore, DR drill"
+        - "ci — workflow, runner, gate that reported the wrong result"
+        - "unknown — needs triage"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: drift
+    attributes:
+      label: Is this configuration drift?
+      description: Drift means the running infrastructure no longer matches the committed code. A `terraform plan` that shows changes with no code change, or an Ansible task that keeps re-applying, is drift — not a bug in the tool.
+      options:
+        - "no — the code itself produces the wrong result"
+        - "yes — plan shows unexpected changes on unchanged code"
+        - "yes — a manual change was made outside this repository"
+        - "suspected — not confirmed yet"
+    validations:
+      required: true
+
+  - type: input
+    id: component
+    attributes:
+      label: Component or area
+      description: The Terraform module or environment, the Ansible playbook or role, the Kubernetes namespace or policy, the monitoring rule, or the workflow job affected.
+      placeholder: "terraform/modules/k3s-node — cloud-init network config"
+    validations:
+      required: false
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Numbered, minimal and specific. Include the exact input used, with personal data redacted.
+      placeholder: |
+        1. Checked out main at <sha>.
+        2. Ran `terraform -chdir=terraform/envs/staging plan -var-file=terraform.tfvars`.
+        3. Plan reported 0 to add, 2 to change, 0 to destroy.
+        4. After apply, `qemu-agent` reports the VM has no IP on VLAN 30; the Proxmox UI
+           shows the NIC untagged.
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What should have happened, and which requirement, specification or acceptance criterion says so.
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What happened instead. Quote the exact error message, status code or rendered output.
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and evidence
+      description: |
+        Relevant log lines, stack trace, network response, or screenshot.
+
+        **PII scrub required before pasting.** Remove or redact: names, email addresses,
+        phone numbers, postal addresses, dates of birth, donation or payment amounts,
+        account and card identifiers, session tokens, cookies, IP addresses, user IDs,
+        parish or congregation affiliation, and any health or belief information.
+
+        **Infrastructure scrub also required.** Remove or redact: Proxmox API tokens and
+        token secrets, kubeconfig contents and client certificates, SOPS age private keys,
+        PostgreSQL connection strings and passwords, S3 credentials, full `terraform plan`
+        JSON (it embeds resource attributes and can contain credentials), and any value
+        from a decrypted SOPS file. Quote the plan *summary* line and the resource address,
+        not the attribute values.
+
+        Replace
+        each with a stable token such as `[REDACTED_NAME_1]` so correlations remain
+        readable. Use the shortest excerpt that demonstrates the defect — not a full log
+        dump.
+      placeholder: |
+        Paste logs here, already scrubbed. Use a code fence.
+      render: shell
+    validations:
+      required: false
+
+  - type: dropdown
+    id: gdpr
+    attributes:
+      label: GDPR relevance
+      description: Does this defect involve personal data? If yes, the DPO is added to triage and the incident may be a personal data breach under Article 33.
+      options:
+        - "no — no personal data involved"
+        - "possibly — personal data is in the affected flow but I cannot confirm exposure"
+        - "yes — personal data was exposed, altered, lost or processed unlawfully"
+        - "yes — special category data under Article 9 is involved, including religious belief"
+    validations:
+      required: true
+
+  - type: textarea
+    id: gdpr-detail
+    attributes:
+      label: Sensitive data detail
+      description: |
+        Required if GDPR relevance above is anything other than "no".
+
+        Describe the categories of personal data affected, the approximate number of data
+        subjects, whether the data left the EEA, whether it is still accessible, and the
+        time you first became aware. **Do not include the personal data itself.** Do not
+        name data subjects. If you believe personal data has been exposed, also email
+        security@viavitae.com and dpo@viavitae.com immediately — the 72-hour notification
+        clock under GDPR Article 33 runs from awareness, and it does not wait for triage of
+        this issue.
+      render: markdown
+    validations:
+      required: false
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact and workaround
+      description: Who is affected, how badly, how often it occurs, and any workaround currently in use.
+      render: markdown
+    validations:
+      required: false
+
+  - type: input
+    id: regression
+    attributes:
+      label: Last known good version
+      description: If this is a regression, the last version that worked. This narrows the search to a commit range.
+      placeholder: "v1.3.0"
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: This is not a security vulnerability. If it might be, I have reported it privately per SECURITY.md instead.
+          required: true
+        - label: I have searched existing issues, open and closed, and this is not a duplicate.
+          required: true
+        - label: I have reproduced this on the latest `main`, not only on an older release.
+        - label: If this is an outage, the on-call engineer has been paged and the runbook is being worked.
+          required: true
+        - label: Everything I pasted has been scrubbed of personal data, credentials and secrets.
+          required: true
+        - label: I have not included any secret, token, key or credential in this report.
+          required: true

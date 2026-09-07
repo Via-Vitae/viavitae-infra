@@ -1,0 +1,191 @@
+# Dependabot configuration — viavitae-infra
+#
+# Two ecosystems only: `terraform` and `github-actions`. The baseline file inherited
+# from viavitae-template also declares `npm`, `pip` and `docker`; those blocks are
+# removed here deliberately.
+#
+# WHY ONLY TWO ECOSYSTEMS
+#   An ecosystem entry that has nothing to scan does not warn — it reports success
+#   while checking nothing, which is worse than not declaring it, because the green
+#   tick is read as coverage. This repository has no package.json, no Dockerfile and
+#   no third-party Python dependency: tools/cost-estimate.py is standard library only
+#   (see its module docstring). If any of those appears, add the matching ecosystem
+#   in the same pull request, not later.
+#
+# WHY FOUR TERRAFORM DIRECTORIES
+#   Terraform resolves provider versions from the *root* module's required_providers
+#   block; a constraint declared inside a child module is advisory only. The root
+#   modules in this repository are terraform/ (the global state) and the three
+#   environments, so those four directories are the complete set of places a provider
+#   version can actually be changed. terraform/modules/* is covered transitively and
+#   is not listed, because Dependabot directory entries do not accept globs and seven
+#   redundant entries would dilute the signal.
+#
+# Security updates are configured separately, in repository settings under
+# "Dependabot security updates", and are not governed by this file. They must
+# remain enabled.
+
+version: 2
+
+updates:
+
+  # --- Terraform: global root module -----------------------------------------
+  - package-ecosystem: "terraform"
+    directory: "/terraform"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Vilnius"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "JourneyOfLife"
+      - "IterVitae"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      terraform-providers:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      # Provider majors can change resource schemas and force replacement of
+      # production infrastructure. Always applied manually after a plan review.
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+      # bpg/proxmox is pre-1.0: a minor bump is treated as a major here, because
+      # the provider has changed required arguments between minor versions. Pin is
+      # moved by hand, with a plan for every environment attached.
+      - dependency-name: "bpg/proxmox"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
+
+  # --- Terraform: dev environment --------------------------------------------
+  - package-ecosystem: "terraform"
+    directory: "/terraform/envs/dev"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Vilnius"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "JourneyOfLife"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      terraform-providers:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "bpg/proxmox"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
+
+  # --- Terraform: staging environment -----------------------------------------
+  - package-ecosystem: "terraform"
+    directory: "/terraform/envs/staging"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Vilnius"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "JourneyOfLife"
+      - "IterVitae"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      terraform-providers:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "bpg/proxmox"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
+
+  # --- Terraform: production environment --------------------------------------
+  # Deliberately a day behind dev and staging so a provider regression is caught by
+  # the lower environments first. Same weekly cadence, Wednesday instead of Monday.
+  - package-ecosystem: "terraform"
+    directory: "/terraform/envs/prod"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "06:00"
+      timezone: "Europe/Vilnius"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "JourneyOfLife"
+      - "IterVitae"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      terraform-providers:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "bpg/proxmox"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
+
+  # --- GitHub Actions ---------------------------------------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Vilnius"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "JourneyOfLife"
+      - "IterVitae"
+    commit-message:
+      prefix: "ci(deps)"
+      include: "scope"
+    groups:
+      actions:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      # Actions are pinned to full-length commit SHAs under rule R4. Dependabot
+      # moves the SHA and reports the resolved tag in the pull request body;
+      # never relax a pin back to a mutable tag or branch reference. The
+      # action-pinning gate in compliance-check.yml fails the build if it happens.
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"

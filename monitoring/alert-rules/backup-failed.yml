@@ -1,0 +1,67 @@
+# Alert rules for backup failures. INFRA-001 M13: backup success is alerted on
+# the first failure, not on the third.
+#
+# These rules are loaded by the PrometheusRule CRD, which kube-prometheus-stack
+# watches. They are in a separate file from the SLO burn-rate rules because the
+# backup alerts are owned by the platform team and the SLO alerts are owned by
+# the platform team and the security team jointly.
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: backup-failed
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: viavitae
+spec:
+  groups:
+    - name: backup
+      interval: 5m
+      rules:
+        # WAL-G archive failure. The WAL-G agent on the PostgreSQL host runs
+        # archive_command = 'wal-g wal-push %p'. If it fails for more than 10
+        # minutes, the archive is falling behind and the RPO is at risk.
+        - alert: WalGArchiveFailed
+          expr: >-
+            time() - walg_last_archive_success_timestamp > 600
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "WAL-G archive has not succeeded in 10 minutes"
+            description: >-
+              The WAL-G archive_command on {{ $labels.instance }} has not
+              completed successfully for {{ $value | humanizeDuration }}.
+              The RPO of 5 minutes (capacity-plan.md) is at risk.
+            runbook_url: "https://runbooks.viavitae.com/backup/walg-archive-failed"
+
+        # vzdump failure. The Proxmox backup job runs daily at 02:00 Europe/Vilnius.
+        # If the task does not complete within 2 hours, it has failed.
+        - alert: VzdumpFailed
+          expr: >-
+            pve_vzdump_last_status{status!="ok"} == 1
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "vzdump backup failed for VM {{ $labels.vmid }}"
+            description: >-
+              The vzdump backup of VM {{ $labels.vmid }} on {{ $labels.node }}
+              finished with status {{ $labels.status }}.
+            runbook_url: "https://runbooks.viavitae.com/backup/vzdump-failed"
+
+        # Backup staleness: if no backup of any kind has succeeded in 48 hours,
+        # something systemic is wrong. This catches the case where the alert
+        # above is silenced or the job is not running at all.
+        - alert: BackupStale
+          expr: >-
+            time() - max_over_time(walg_last_archive_success_timestamp[48h]) > 172800
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "No successful backup in 48 hours"
+            description: >-
+              No WAL-G archive or vzdump backup has succeeded in 48 hours
+              across the cluster. This is a systemic failure, not a single-job
+              failure.

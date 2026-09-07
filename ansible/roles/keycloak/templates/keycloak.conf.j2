@@ -1,0 +1,27 @@
+# Managed by ansible/roles/keycloak. Edit the role, not this file.
+#
+# Keycloak configuration. The hostname is what Keycloak uses in the issuer field of
+# tokens and in the discovery document; it must match the hostname the application uses.
+
+hostname={{ keycloak_public_hostname }}
+hostname-strict=false
+
+http-enabled=true
+http-host=0.0.0.0
+http-port={{ keycloak_http_port }}
+https-port={{ keycloak_https_port }}
+
+# Database connection. Keycloak uses the same PostgreSQL instance as the application.
+db=postgres
+db-url=jdbc:postgresql://{{ keycloak_db_host }}:{{ keycloak_db_port }}/{{ keycloak_db_name }}
+db-username={{ keycloak_db_user }}
+db-password={{ keycloak_db_password }}
+
+# Logging. JSON format for Loki; INFO level to avoid session state noise.
+log=console
+log-console-output=json
+log-level={{ keycloak_log_level }}
+
+# Health checks. Enabled so that the systemd unit can wait for Keycloak to be ready.
+health-enabled=true
+metrics-enabled=true

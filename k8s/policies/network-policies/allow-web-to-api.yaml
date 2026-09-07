@@ -1,0 +1,17 @@
+---
+# Permit ingress to `api` from the `web` namespace only.
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-web-to-api
+  namespace: api
+spec:
+  podSelector: {}
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: web
+  policyTypes:
+    - Ingress

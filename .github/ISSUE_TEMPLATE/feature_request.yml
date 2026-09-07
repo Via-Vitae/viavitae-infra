@@ -1,0 +1,343 @@
+name: Feature request
+description: Propose a new VM module, environment, admission policy, backup target or platform service. Capacity, residency, recovery and compliance impact are assessed here, before work starts.
+title: "feat(<scope>): "
+labels: ["enhancement", "triage"]
+projects: ["Via-Vitae/1"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for proposing a change. A feature request that answers the compliance
+        questions below can be scheduled immediately; one that does not will be returned
+        for clarification, because the answers are needed before work starts, not after.
+
+        Under rule R5, processing personal data requires a completed DPIA **before** the
+        processing begins. Under rule R3, a change with architectural impact needs an ADR.
+        In this repository almost every request has architectural impact: a new VM module,
+        a new environment, a new admission policy, a new VLAN, a new backup target or a new
+        platform service all need an ADR.
+
+        Two questions specific to infrastructure are asked below and are worth thinking
+        about before you write: **what does this cost per month**, and **what happens to it
+        during a disaster**. A capability with no capacity headroom and no restore path is
+        a liability, not a feature.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: |
+        What is the problem, who has it, and how do you know? Describe the situation, not
+        your preferred solution. Include evidence: a support ticket, a user interview, a
+        metric, a failed workflow, a compliance finding.
+
+        A request that starts "we should add X" without stating whose problem X solves is
+        hard to evaluate against alternatives.
+      placeholder: |
+        Onboarding a new client tenant takes about four hours of platform engineer time:
+        the namespace, quota, PostgreSQL schema, DNS record and Argo CD application are
+        created by hand from a checklist, because no module covers the sequence. Two of the
+        eleven tenants onboarded last quarter had a quota typo that was only caught when
+        the tenant hit it in production.
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: |
+        What you propose, and what the user experience looks like when it is done. Be
+        concrete about inputs, outputs and states. Note any part you consider negotiable.
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: |
+        Which other approaches were considered, and why each was rejected. Include "do
+        nothing" and state its cost. For infrastructure requests, also address:
+
+        - **Buy versus build.** If a managed or hosted service could solve this, name it and
+          address the EEA residency question in the compliance section. A non-EEA service is
+          rejected by policy, not by preference.
+        - **Which tool should own it.** Terraform, Ansible, Argo CD or a shell tool — see the
+          ownership boundary table in README.md. A request that would give two tools the same
+          object needs an ADR before it needs an implementation.
+        - **What already exists.** Seven Terraform modules and nine Ansible roles are in this
+          repository; extending one is usually cheaper than adding another.
+
+        An empty alternatives section usually means the cheapest option was not examined.
+      render: markdown
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+
+        ### Compliance impact
+
+        These four questions determine whether a DPIA and an ADR are required before work
+        starts. Answer them honestly — "unknown" is an acceptable answer and is far more
+        useful than a guess, because it routes the request to the DPO early.
+
+  - type: dropdown
+    id: personal-data
+    attributes:
+      label: Does this involve personal data?
+      description: Any information relating to an identified or identifiable person, including identifiers, contact details, device and IP addresses, and behavioural data.
+      options:
+        - "no — no personal data is processed, stored or transmitted"
+        - "yes — ordinary personal data (name, email, phone, address, account)"
+        - "yes — financial data (donations, payments, bank or card references)"
+        - "yes — special category data under Article 9, including religious belief"
+        - "yes — data about children or vulnerable adults"
+        - "unknown — I need the DPO to assess this"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: new-third-party
+    attributes:
+      label: Does this introduce a new third party?
+      description: Any new processor or subprocessor — a SaaS provider, an API, an analytics or error-tracking service, an AI or LLM endpoint, a font or CDN host, a payment provider.
+      options:
+        - "no — uses only processors already under a DPA"
+        - "yes — new processor identified, name given below"
+        - "yes — new egress destination only, no data shared (name it below)"
+        - "possibly — depends on the implementation chosen"
+        - "unknown"
+    validations:
+      required: true
+
+  - type: input
+    id: third-party-name
+    attributes:
+      label: New third party details
+      description: Name, what data it receives, where it processes and stores that data, and whether a DPA exists. Required if the answer above is not "no".
+      placeholder: "acme-registry.example — pulls container images only, no data sent — hosted in Frankfurt, DE — DPA in place"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: eu-only
+    attributes:
+      label: EU-only check
+      description: Personal data must be stored and processed inside the EEA. Confirm where the data in this feature would live.
+      options:
+        - "confirmed EEA-only — self-hosted on ViaVitae Proxmox infrastructure"
+        - "confirmed EEA-only — third party with an EEA processing region and a DPA"
+        - "at risk — the obvious implementation would place data outside the EEA"
+        - "requires an exception — I will request an ADR and a transfer impact assessment"
+        - "unknown — needs assessment"
+    validations:
+      required: true
+
+  - type: textarea
+    id: residency-detail
+    attributes:
+      label: Residency detail
+      description: |
+        Required if the EU-only check is anything other than "confirmed EEA-only". Name the
+        storage location, the backup location, the region used by any third party, and which
+        transfers you believe would occur. If you are requesting an exception, say what
+        compensating control you propose.
+      render: markdown
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+
+        ### Capacity, cost and recovery impact
+
+        These four questions are specific to infrastructure. They are asked here because
+        answering them after implementation means buying hardware or accepting a cost
+        overrun that nobody approved.
+
+  - type: input
+    id: capacity
+    attributes:
+      label: Capacity required
+      description: Additional vCPU, RAM, storage and network throughput, per environment. Use the units in docs/capacity-plan.md so the numbers can be added to the growth model directly.
+      placeholder: "prod: +4 vCPU, +16 GB RAM, +200 GB ZFS, +2 Mbit/s sustained; staging: +2 vCPU, +8 GB RAM"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: headroom
+    attributes:
+      label: Does current headroom cover it?
+      description: Check the free capacity table in docs/capacity-plan.md before answering. "unknown" is acceptable and routes the request to the platform team for a capacity check.
+      options:
+        - "yes — covered by current headroom in every affected environment"
+        - "yes for dev and staging, not for prod"
+        - "no — new hardware or a re-allocation is required"
+        - "unknown — needs a capacity check"
+    validations:
+      required: true
+
+  - type: input
+    id: cost
+    attributes:
+      label: Recurring cost impact
+      description: Monthly amortised cost, and for a tenant-facing capability the cost per tenant per month. The tenant margin ceiling is EUR 30-50 per month; a tenant whose infrastructure share approaches it is a pricing problem, not an engineering one. tools/cost-estimate.py computes this.
+      placeholder: "EUR 42/mo amortised (hardware 31, power 7, offsite backup 4); EUR 3.10 per tenant per month at 25 tenants"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: recovery
+    attributes:
+      label: Recovery requirement
+      description: What this capability needs from backup and disaster recovery. Anything holding personal data needs a stated RPO and RTO and a restore path that has been tested.
+      options:
+        - "none — stateless, rebuilt from Git"
+        - "RPO 24 h / RTO 4 h — covered by the daily vzdump schedule"
+        - "RPO 5 min / RTO 1 h — requires WAL-G continuous archiving"
+        - "new requirement — not covered by any existing schedule, stated below"
+        - "unknown — needs assessment"
+    validations:
+      required: true
+
+  - type: textarea
+    id: recovery-detail
+    attributes:
+      label: Recovery detail
+      description: Required if the answer above is a new requirement. State the RPO, the RTO, what is backed up, where the copy lives, how long it is retained, how a restore is verified, and which runbook in docs/runbooks/ needs a new or updated section.
+      render: markdown
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+
+        ### Delivery impact
+
+  - type: dropdown
+    id: i18n
+    attributes:
+      label: i18n impact
+      description: Supported locales are Lithuanian, English and Russian. Polish and German are stubbed. User-facing strings must reach parity in all three supported locales in the same change. Most infrastructure requests have none; Grafana dashboards, status pages and alert text do.
+      options:
+        - "none — no user-facing strings"
+        - "lt / en / ru — parity required in the same change"
+        - "lt / en / ru plus a stubbed locale — flag the gap below"
+        - "requires a new locale"
+    validations:
+      required: true
+
+  - type: textarea
+    id: i18n-detail
+    attributes:
+      label: i18n detail
+      description: Which strings are added or changed, whether translation is needed and who provides it, and any locale-specific formatting for dates, numbers or currency.
+      render: markdown
+    validations:
+      required: false
+
+  - type: dropdown
+    id: accessibility
+    attributes:
+      label: Accessibility impact
+      description: |
+        WCAG 2.2 AA is a requirement, not an aspiration. Any UI change must have a keyboard
+        path, a visible focus state, a programmatic name and sufficient contrast. In this
+        repository the UI surface is Grafana dashboards, the public status page and alert
+        text, so the checks are no colour-only encoding, a colour-blind-safe palette, and
+        legibility at 200 % zoom.
+      options:
+        - "none — no user interface"
+        - "new UI component — full AA assessment and axe gate required"
+        - "change to an existing component — regression check required"
+        - "new media — captions or transcript required"
+        - "risk of an AA failure — describe below"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Estimated scope
+      description: Order-of-magnitude effort, in the smallest honest bucket. Pull requests stay under 400 changed lines, so a large scope means several sequential pull requests.
+      options:
+        - "small — under a day, one pull request"
+        - "medium — a few days, two to four pull requests"
+        - "large — one to two weeks, needs a design note or ADR first"
+        - "epic — needs decomposition before it can be scheduled"
+        - "unknown — needs investigation, propose a spike"
+    validations:
+      required: true
+
+  - type: input
+    id: repositories
+    attributes:
+      label: Repositories affected
+      description: Comma-separated. Include infrastructure and documentation repositories, not only the application.
+      placeholder: "viavitae-infra, viavitae-clients, viavitae-docs"
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: |
+        Testable statements that define done. One per line, starting with "Given", "When"
+        or "The system". Each must be verifiable by a test, a measurement or a review — not
+        by opinion. Include the negative cases and the accessibility and i18n criteria where
+        they apply.
+      placeholder: |
+        - Given a tenant definition that passes validation, when `tools/tenant-provision.sh`
+          runs, then a pull request exists in viavitae-clients containing the namespace,
+          quota, limit range, network policy and Argo CD application for that tenant.
+        - Given the same tenant, when the Terraform apply completes, then the PostgreSQL
+          schema exists, the grants are applied, the DNS record resolves, and no credential
+          appears in Terraform state.
+        - Given a tenant definition with a quota above the documented ceiling, when the tool
+          runs, then it exits non-zero and names the field that failed.
+        - The change is reproducible: destroying and re-applying produces an identical
+          tenant, and `terraform plan` afterwards reports no differences.
+        - Restoring the tenant database from backup into a scratch schema yields a matching
+          row count and checksum.
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Explicitly out of scope
+      description: What this request does not cover. Stating the boundary prevents scope creep during review and implementation. For infrastructure, name explicitly whether application configuration, in-guest tuning and monitoring are in scope or belong to another repository.
+      render: markdown
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I have searched existing issues and this is not a duplicate.
+          required: true
+        - label: I have described the problem and its evidence, not only my preferred solution.
+          required: true
+        - label: I have answered the compliance questions honestly, using "unknown" where I am genuinely unsure.
+        - label: I have answered the capacity, cost and recovery questions, or marked them "unknown" for the platform team to assess.
+        - label: I have checked whether an existing Terraform module or Ansible role already covers this.
+          required: true
+        - label: I understand that if personal data is involved, a DPIA must be completed before implementation starts (rule R5).
+          required: true
+        - label: I have not included any personal data, secret, token or credential in this request.
+          required: true

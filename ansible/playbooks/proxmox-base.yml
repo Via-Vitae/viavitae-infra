@@ -1,0 +1,60 @@
+---
+# Proxmox host baseline
+#
+# Configures the Proxmox **hypervisors** themselves: the enterprise repository, the
+# subscription-nag removal, ZFS scrub and ARC settings, the corosync qdevice
+# prerequisite, bridges `vmbr0`/`vmbr1`/`vmbr2` with the VLAN layout from
+# docs/network-topology.md, and the `snippets` content type on the datastore that
+# terraform/modules/proxmox-vm uploads cloud-init files to.
+#
+# Runs before any `terraform apply`, because a bridge or a snippets datastore that does
+# not exist makes the first apply fail with a provider error that does not mention the
+# bridge. `vmbr1` is created with **no untagged membership**, which is what enforces the
+# VLAN 99 prohibition: a guest that fails to tag gets no connectivity at all, visibly,
+# during provisioning.
+#
+#   ansible-playbook -i inventories/prod/hosts.yml --limit pve playbooks/proxmox-base.yml
+#
+# Always with `--check --diff` first, except where this file says otherwise: a
+# `--check` run that reports no changes on a host that is visibly wrong is the signal
+# that the role has stopped describing reality.
+
+- name: Proxmox host baseline
+  hosts: proxmox
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Refuse to run against a guest
+      ansible.builtin.assert:
+        that:
+          - ansible_virtualization_role is defined
+          - ansible_virtualization_role == "host"
+        fail_msg: >-
+          This playbook configures Proxmox hypervisors. {{ inventory_hostname }}
+          reports virtualization role '{{ ansible_virtualization_role | default('unknown') }}',
+          which means it is a guest. Running this against a guest would rewrite its
+          network configuration and disconnect it.
+        quiet: true
+
+    - name: Refuse to run while a pool is scrubbing or resilvering
+      ansible.builtin.shell:
+        cmd: zpool status -x | grep -qc 'resilvering\|scrub in progress' || true
+      register: zpool_activity
+      changed_when: false
+      failed_when: false
+
+    - name: Stop if ZFS is busy
+      ansible.builtin.assert:
+        that:
+          - zpool_activity.stdout | int == 0
+        fail_msg: >-
+          A ZFS pool is resilvering or scrubbing. Restarting networking or changing
+          pool properties now extends the window in which a second disk failure means
+          a lost pool. Wait for the operation to finish; `zpool status` reports the
+          percentage.
+      when: zpool_activity.rc == 0
+
+  roles:
+    - role: common
+

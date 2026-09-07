@@ -1,0 +1,37 @@
+# CODEOWNERS — viavitae-infra ownership mapping
+#
+# Rule R2: This file is never empty. The '*' rule always resolves to at least
+# @Via-Vitae/platform. Changes that remove owners or widen '*' require
+# approval from @Via-Vitae/compliance.
+
+# --- Default owner -----------------------------------------------------------
+*                                       @Via-Vitae/platform
+
+# --- Platform: CI/CD and workflows ------------------------------------------
+/.github/                               @Via-Vitae/platform @Via-Vitae/architects
+/.github/workflows/                     @Via-Vitae/platform @Via-Vitae/security
+/.github/CODEOWNERS                     @Via-Vitae/platform @Via-Vitae/compliance
+/.github/dependabot.yml                 @Via-Vitae/platform
+
+# --- Infrastructure source (all IaC is security-sensitive) ------------------
+/terraform/                             @Via-Vitae/platform @Via-Vitae/security
+/ansible/                               @Via-Vitae/platform @Via-Vitae/security
+/k8s/                                   @Via-Vitae/platform @Via-Vitae/security
+/.sops.yaml                             @Via-Vitae/platform @Via-Vitae/security
+
+# --- Monitoring and backup ---------------------------------------------------
+/monitoring/                            @Via-Vitae/platform
+/backup/                                @Via-Vitae/platform @Via-Vitae/security
+
+# --- Compliance and privacy --------------------------------------------------
+/docs/                                  @Via-Vitae/platform @Via-Vitae/compliance
+/docs/DPIA-*.md                         @Via-Vitae/compliance @Via-Vitae/dpo
+/docs/architecture.md                   @Via-Vitae/platform @Via-Vitae/compliance
+
+# --- Legal and policy --------------------------------------------------------
+/LICENSE                                @Via-Vitae/legal @Via-Vitae/platform
+/SECURITY.md                            @Via-Vitae/security @Via-Vitae/legal
+/CONTRIBUTING.md                        @Via-Vitae/platform
+/QODER.md                               @Via-Vitae/platform @Via-Vitae/security
+/CHANGELOG.md                           @Via-Vitae/platform
+/README.md                              @Via-Vitae/platform

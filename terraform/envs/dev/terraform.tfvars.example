@@ -1,0 +1,65 @@
+# Example variable values for the `dev` environment.
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# terraform.tfvars is git-ignored; this file is not. Every variable below without a
+# default in variables.tf must appear here, and the `state-hygiene` job in ci.yml
+# fails if one is missing — an example file that does not cover the required inputs
+# is a quickstart that does not work.
+#
+# Nothing in this file is a secret, and nothing secret may be added to it. API
+# tokens, SSH private keys and state credentials come from the environment
+# (PM_API_TOKEN_SECRET, PM_SSH_PRIVATE_KEY, AWS_SECRET_ACCESS_KEY), which is what
+# makes `terraform plan` safe to run on a pull request from a fork review.
+
+# --- state -------------------------------------------------------------------
+
+state_bucket   = "viavitae-infra-tfstate"
+state_region   = "eu-central-1"
+state_endpoint = "https://s3.eu-central-1.viavitae-state.example.com"
+
+# --- cluster -----------------------------------------------------------------
+
+node_names = ["pve-01", "pve-02"]
+
+# One minor version behind staging, deliberately. See variables.tf.
+k3s_version = "v1.36.3+k3s1"
+
+# --- storage and template ----------------------------------------------------
+
+datastore_id          = "local-zfs"
+snippets_datastore_id = "local"
+template_vm_id        = 9001
+template_node_name    = "pve-01"
+
+# --- network -----------------------------------------------------------------
+
+vlan_id            = 50
+subnet_prefix      = "10.10.50.0/24"
+ipv4_gateway       = "10.10.50.1"
+node_ipv4_address  = "10.10.50.10/24"
+dns_domain         = "viavitae.internal"
+dns_servers        = ["10.10.10.1", "10.10.10.2"]
+
+# Public keys only. A private key committed here is in Git history forever, and
+# `git filter-repo` is not a remedy, it is an incident.
+ssh_public_keys = [
+  "ssh-ed25519 AAAA-replace-with-a-real-public-key-base64-blob platform@viavitae",
+]
+
+# --- HA ----------------------------------------------------------------------
+
+# node => priority. Higher runs first. `dev` is last in the cluster, so its
+# priorities are lower than every production group's.
+ha_group_nodes = {
+  pve-01 = 1
+  pve-02 = 2
+}
+
+# --- sizing ------------------------------------------------------------------
+
+node_vmid           = 1000
+cpu_cores           = 4
+memory_dedicated_mb = 16384
+disk_size_gb        = 100
+started             = true

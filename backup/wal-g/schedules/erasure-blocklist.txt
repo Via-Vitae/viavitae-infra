@@ -1,0 +1,14 @@
+# Erasure blocklist for WAL-G restore operations.
+#
+# A tenant slug on this list MUST NOT be restored by any routine restore
+# operation. This is the mechanical enforcement of Art. 17 erasure: the live
+# schema is dropped, and the blocklist prevents a routine restore from
+# resurrecting it from a backup that still contains the data.
+#
+# A tenant is removed from this list only after the residual-copy window has
+# expired (35 days for WAL-G, 56 days for vzdump) AND the DPO has confirmed
+# in writing that all copies are expired.
+#
+# Format: one tenant slug per line. Lines starting with # are comments.
+#
+# Current entries: none.

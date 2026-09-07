@@ -1,0 +1,21 @@
+---
+# Defaults for the WAL-G role. Anything here can be overridden per group or per host;
+# anything that must not be overridden belongs in a task assertion instead.
+
+walg_version: "3.0.3"
+walg_install_url: "https://github.com/wal-g/wal-g/releases/download/v{{ walg_version }}/wal-g-pg-ubuntu-20.04-amd64.tar.gz"
+walg_checksum: "sha256:REPLACE_WITH_ACTUAL_CHECKSUM_FROM_VERIFY_SHAS.SH"
+
+walg_install_dir: /usr/local/bin
+walg_config_dir: /etc/wal-g
+walg_config_file: "{{ walg_config_dir }}/wal-g.yaml"
+
+# WAL-G credentials come from vault.sops.yml. The bucket name is not secret; the
+# access key is.
+walg_s3_access_key: "{{ wal_g_s3_access_key }}"
+walg_s3_secret_key: "{{ wal_g_s3_secret_key }}"
+
+# Retention. A backup that is deleted before the retention period expires is a backup
+# that was needed; a backup that is kept forever is a backup that fills the disk.
+walg_retention_count: 7  # keep 7 base backups
+walg_retention_days: 14  # keep backups from the last 14 days

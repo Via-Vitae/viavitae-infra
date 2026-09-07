@@ -1,0 +1,68 @@
+# Variables that apply only to the physical hypervisors.
+#
+# The `proxmox` group is deliberately outside `viavitae` (see hosts.yml), so
+# nothing in group_vars/all.yml that assumes a Terraform-built guest applies here.
+
+# The hypervisors are installed from the Proxmox ISO by hand. No module in this
+# repository creates them, so there is no declarative source for their SSH key set
+# and `roles/common` cannot verify it the way it verifies a guest's.
+#
+# Setting this to true is the exception being recorded rather than the check being
+# skipped: without it the role fails on pve-01 and pve-02 and the operator has to
+# pass `-e` on the command line, which is not reviewed. The role still prints the
+# SHA256 fingerprints of every installed key, so each run leaves a record of who
+# can log in to the machines everything else runs on.
+#
+# Compensating controls, per docs/network-topology.md: the mgmt VLAN is reachable
+# only from the site VPN (rules I2 and X11), password authentication is disabled,
+# and `roles/hardening` restricts SSH to the viavitae-admin group. Closing this
+# gap properly means committing the fingerprints here and comparing against them;
+# that is deferred until the keys have been issued through a ceremony that records
+# which fingerprint belongs to which person.
+allow_undeclared_ssh_keys: true
+
+# Proxmox-specific backup storage. Kept here rather than in all.yml because a
+# guest never sees the PBS datastore name and a value that is meaningless on 11 of
+# 13 hosts is a value someone will eventually misread as global.
+proxmox_backup_storage: pbs-backup
+
+# --- observability -----------------------------------------------------------
+
+# The hypervisors sit on VLAN 10, and X11 denies every other VLAN a route to it.
+# Scraping them from the in-cluster Prometheus would therefore require an exception
+# to the strongest invariant in docs/network-topology.md, and an exception to an
+# invariant is how the invariant dies.
+#
+# The collector runs here instead, on the mgmt side, in Prometheus agent mode: it
+# scrapes pve-01, pve-02, the load balancers and the CI runners over VLAN 10, holds
+# no local TSDB, and remote-writes to the production Prometheus. That flow is
+# mgmt -> prod, which X1 already permits in the direction that matters. Nothing
+# reaches into the management VLAN, and the load balancers — the entry point of the
+# entire platform — are still observed.
+#
+# One agent per hypervisor, both writing to the same endpoint. Prometheus dedupes on
+# the external labels, and an agent that exists on only one of two nodes is an agent
+# that stops collecting during exactly the failover it was installed to measure.
+prometheus_agent_mode: true
+prometheus_remote_write_url: "http://10.10.20.40:9090/api/v1/write"
+prometheus_remote_write_external_labels:
+  cluster: prod
+  segment: mgmt
+
+# Hypervisors push their own logs to the production Loki. Also mgmt -> prod (X1),
+# also no exception. Alloy lists every endpoint below and fails over between them.
+host_log_endpoints:
+  - "http://10.10.20.50:3100"
+  - "http://10.10.20.51:3100"
+  - "http://10.10.20.52:3100"
+  - "http://10.10.20.53:3100"
+
+# node_exporter on a hypervisor runs with the process and textfile collectors off.
+# `--collector.processes` exposes every command line on the host, which on a
+# Proxmox node includes API tokens passed to `pvesh`; the textfile collector exposes
+# the contents of a directory that anything running as root can write to. Both are
+# read by a scrape that crosses a VLAN boundary, so neither is enabled.
+node_exporter_disabled_collectors:
+  - processes
+  - textfile
+  - systemd

@@ -1,0 +1,30 @@
+---
+# Permit ingress from the HAProxy load balancer VMs to the in-cluster workloads.
+#
+# K3s uses ServiceLB (klipper-lb) as the default LoadBalancer implementation.
+# ServiceLB routes traffic directly from the external IP to the pod, without
+# going through kube-proxy. This means the source IP that Calico/Cilium sees at
+# the pod level is the real source IP (the HAProxy VM), not a SNAT address.
+#
+# The ipBlock below matches the prod VLAN (10.10.20.0/24) where the HAProxy VMs
+# (lb-01, lb-02) reside. The /28 exclusion covers the hypervisor management
+# addresses on the same VLAN, which should never send traffic to pods.
+#
+# In environments that use kube-proxy (e.g. a cloud-managed Kubernetes cluster),
+# this policy would need to match the node CIDR instead, because kube-proxy
+# SNATs the source IP.
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-from-haproxy
+spec:
+  podSelector: {}
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.10.20.0/24  # prod VLAN — HAProxy VMs
+            except:
+              - 10.10.20.0/28  # hypervisor management addresses
+  policyTypes:
+    - Ingress

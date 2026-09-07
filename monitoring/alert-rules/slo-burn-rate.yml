@@ -1,0 +1,77 @@
+# Multi-window, multi-burn-rate SLO alert rules. INFRA-001 M12.
+#
+# A burn-rate alert fires when the error budget is being consumed faster than
+# sustainable. The multi-window approach (a short window for fast detection, a
+# long window for confirmation) avoids pages on transient blips.
+#
+# The SLOs are:
+#   - Availability: 99.9 % of requests succeed within 500 ms, measured over 30 days.
+#   - Error budget: 0.1 % of the 30-day window, which is 43.2 minutes.
+#
+# The burn-rate thresholds are:
+#   - Page (critical): 14.4× burn rate over 1 hour, confirmed over 5 minutes.
+#     This means the error budget would be exhausted in ~2 days.
+#   - Ticket (warning): 6× burn rate over 6 hours, confirmed over 30 minutes.
+#     This means the error budget would be exhausted in ~5 days.
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: slo-burn-rate
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: viavitae
+spec:
+  groups:
+    - name: slo-burn-rate
+      interval: 1m
+      rules:
+        # --- Page: 14.4× burn rate ---
+        - alert: SLOPageCritical
+          expr: >-
+            (
+              1 - (
+                sum(rate(http_requests_total{code=~"2.."}[1h]))
+                /
+                sum(rate(http_requests_total[1h]))
+              )
+            ) / 0.001 > 14.4
+            and
+            (
+              1 - (
+                sum(rate(http_requests_total{code=~"2.."}[5m]))
+                /
+                sum(rate(http_requests_total[5m]))
+              )
+            ) / 0.001 > 14.4
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "SLO burn rate 14.4× — error budget exhaustion in ~2 days"
+            runbook_url: "https://runbooks.viavitae.com/slo/burn-rate-critical"
+
+        # --- Ticket: 6× burn rate ---
+        - alert: SLOWarning
+          expr: >-
+            (
+              1 - (
+                sum(rate(http_requests_total{code=~"2.."}[6h]))
+                /
+                sum(rate(http_requests_total[6h]))
+              )
+            ) / 0.001 > 6
+            and
+            (
+              1 - (
+                sum(rate(http_requests_total{code=~"2.."}[30m]))
+                /
+                sum(rate(http_requests_total[30m]))
+              )
+            ) / 0.001 > 6
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "SLO burn rate 6× — error budget exhaustion in ~5 days"
+            runbook_url: "https://runbooks.viavitae.com/slo/burn-rate-warning"

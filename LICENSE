@@ -1,0 +1,122 @@
+PROPRIETARY LICENCE — ALL RIGHTS RESERVED
+
+Copyright (c) 2026 ViaVitae IT Technologies. All Rights Reserved.
+
+This licence governs the source code, configuration, documentation, design assets and
+all other contents of this repository (collectively, the "Licensed Material"). The
+Licensed Material is protected by copyright law, trade secret law and, where applicable,
+database rights under Directive 96/9/EC.
+
+The Licensed Material is NOT open source and is NOT licensed under any SPDX-recognised
+open source licence. No rights are granted except those expressly stated below.
+
+1. OWNERSHIP
+
+   ViaVitae IT Technologies retains all right, title and interest in and to the Licensed
+   Material, including all intellectual property rights. Nothing in this licence
+   transfers ownership.
+
+2. PERMITTED USE
+
+   Employees, officers and contracted partners of ViaVitae IT Technologies may use,
+   reproduce, modify and build derivative works of the Licensed Material solely for the
+   internal business purposes of ViaVitae IT Technologies, and solely under a current
+   written contract or an executed confidentiality agreement.
+
+3. PROHIBITED USE
+
+   Without the prior written agreement of ViaVitae IT Technologies, no person or entity
+   shall:
+
+   a. redistribute, publish, sublicense, lease, lend or otherwise make the Licensed
+      Material available to any third party, in whole or in part, in original or
+      modified form;
+   b. create derivative works of the Licensed Material for any purpose other than the
+      internal business purposes of ViaVitae IT Technologies;
+   c. use the Licensed Material for any commercial purpose, including offering it as a
+      service, incorporating it into a product sold or licensed to a third party, or
+      using it to compete with ViaVitae IT Technologies;
+   d. reverse engineer, decompile or disassemble any part of the Licensed Material,
+      except to the extent that such restriction is expressly prohibited by applicable
+      law;
+   e. remove, obscure or alter any copyright, trademark or other proprietary notice;
+   f. use the Licensed Material to train, fine-tune or otherwise develop a machine
+      learning model made available to third parties.
+
+4. CONTRIBUTIONS
+
+   Any contribution submitted to this repository is made available to ViaVitae IT
+   Technologies under the terms of this licence, irrevocably and without additional
+   consideration, and is subject to the Developer Certificate of Origin sign-off
+   described in CONTRIBUTING.md.
+
+5. THIRD-PARTY COMPONENTS
+
+   Third-party components incorporated into the Licensed Material remain subject to their
+   own licences. They are identified in the licence report produced by
+   .github/workflows/compliance-check.yml. Only components carrying an allow-listed
+   licence (MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, CC0-1.0, or another
+   ViaVitae proprietary component) may be added without prior legal review. Copyleft
+   licences, including GPL, AGPL, LGPL, MPL, SSPL and BUSL, are prohibited in this
+   repository absent a documented legal decision recorded as an ADR.
+
+6. NO WARRANTY
+
+   THE LICENSED MATERIAL IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+   PARTICULAR PURPOSE, TITLE AND NON-INFRINGEMENT.
+
+7. LIMITATION OF LIABILITY
+
+   TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL VIAVITAE IT
+   TECHNOLOGIES BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY OR
+   CONSEQUENTIAL DAMAGES, OR FOR ANY LOSS OF DATA, PROFITS OR BUSINESS INTERRUPTION,
+   ARISING OUT OF OR IN CONNECTION WITH THE USE OR INABILITY TO USE THE LICENSED
+   MATERIAL, HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+   LIABILITY OR TORT (INCLUDING NEGLIGENCE), EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
+   DAMAGE. Nothing in this clause excludes or limits liability that cannot lawfully be
+   excluded, including liability for death or personal injury caused by negligence and
+   liability for fraud.
+
+8. TERM AND TERMINATION
+
+   This licence takes effect on first use of the Licensed Material and continues until
+   terminated. Any breach of clause 3 terminates the licence automatically and without
+   notice. On termination, all copies of the Licensed Material in your possession or
+   control must be destroyed, and you must confirm destruction in writing on request.
+
+9. DATA PROTECTION
+
+   Where the Licensed Material processes personal data, the processing is governed by
+   Regulation (EU) 2016/679 (GDPR) and by Lithuanian data protection law. Personal data
+   is stored and processed within the European Economic Area. A Data Protection Impact
+   Assessment is required before any new processing of personal data; see
+   docs/DPIA-template.md. The disclosure and breach process is set out in SECURITY.md.
+
+10. GOVERNING LAW AND JURISDICTION
+
+    This licence and any dispute arising out of or in connection with it, including
+    non-contractual disputes, are governed by the law of the Republic of Lithuania,
+    without regard to its conflict of law provisions, and by applicable European Union
+    law. The courts of Vilnius, Lithuania have exclusive jurisdiction. Where a party is a
+    consumer domiciled in another Member State, the mandatory consumer protections and
+    the choice of forum granted by that Member State's law are preserved.
+
+11. SEVERABILITY
+
+    If any provision of this licence is held to be unenforceable, that provision is
+    limited or eliminated to the minimum extent necessary and the remaining provisions
+    continue in full force and effect.
+
+12. ENTIRE AGREEMENT
+
+    This licence constitutes the entire agreement between the parties concerning the
+    Licensed Material and supersedes all prior or contemporaneous representations,
+    whether oral or written. It may be amended only by a written instrument signed by an
+    authorised representative of ViaVitae IT Technologies.
+
+CONTACT
+
+    ViaVitae IT Technologies
+    Legal and licensing enquiries: legal@viavitae.com
+    Security enquiries: security@viavitae.com (see SECURITY.md)

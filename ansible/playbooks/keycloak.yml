@@ -1,0 +1,64 @@
+---
+# Keycloak installation and realm configuration
+#
+# Installs Keycloak, configures it against the keycloak-purpose PostgreSQL instance,
+# imports the realm, clients and groups, enables MFA for the platform team and for
+# tenant administrators, and restricts the administrative console to the management
+# path.
+#
+# The bootstrap administrator password is generated here and rotated on first run, so
+# the value in `vault.sops.yml` is used exactly once, on a machine that does not yet
+# exist.
+#
+#   ansible-playbook -i inventories/prod/hosts.yml --limit keycloak playbooks/keycloak.yml
+#
+# Always with `--check --diff` first, except where this file says otherwise: a
+# `--check` run that reports no changes on a host that is visibly wrong is the signal
+# that the role has stopped describing reality.
+
+- name: Install and configure Keycloak
+  hosts: keycloak
+  become: true
+  gather_facts: true
+  serial: 1
+
+  pre_tasks:
+    - name: Read the public hostname Terraform declared
+      ansible.builtin.slurp:
+        src: /etc/viavitae/keycloak-public-hostname
+      register: keycloak_hostname_file
+
+    - name: Fail rather than default the issuer
+      ansible.builtin.assert:
+        that:
+          - (keycloak_hostname_file.content | b64decode | trim) | length > 0
+        fail_msg: >-
+          /etc/viavitae/keycloak-public-hostname is empty on {{ inventory_hostname }}.
+          Keycloak derives its issuer URL from it; a defaulted issuer produces tokens
+          every client rejects, and the rejection looks like a client misconfiguration.
+
+  roles:
+    - role: keycloak
+
+  post_tasks:
+    - name: Verify the discovery document is served over the declared hostname
+      ansible.builtin.uri:
+        url: "https://{{ keycloak_hostname_file.content | b64decode | trim }}/realms/viavitae/.well-known/openid-configuration"
+        status_code: 200
+        validate_certs: true
+      delegate_to: localhost
+      register: oidc_discovery
+      retries: 3
+      delay: 10
+      until: oidc_discovery.status == 200
+
+    - name: Confirm the issuer matches the hostname
+      ansible.builtin.assert:
+        that:
+          - oidc_discovery.json.issuer is search(keycloak_hostname_file.content | b64decode | trim)
+        fail_msg: >-
+          The discovery document reports issuer '{{ oidc_discovery.json.issuer }}',
+          which does not contain the declared hostname. Every OIDC client will reject
+          these tokens. Fix the reverse proxy or the hostname setting before anything
+          depends on this realm.
+

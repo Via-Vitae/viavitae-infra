@@ -1,0 +1,54 @@
+# Example variable values for the `global` root module.
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# This module owns the cluster-wide allocation policy: one resource pool per
+# environment, and the VMID blocks that make a collision between two environments
+# impossible. It creates no VMs.
+#
+# Blocks are **append-only**. Widen one when an environment grows; never move one and
+# never reissue one. A reissued block makes every `vzdump` archive name ambiguous,
+# because an archive is named by VMID and nothing in the filename says which
+# environment owned that identifier at the time.
+
+environments = {
+  dev = {
+    vmid_range_start = 1000
+    vmid_range_end   = 1099
+    pool_id          = "viavitae-dev"
+    pool_comment     = "Disposable development environment. Destroyable without a reviewed plan."
+    disposable       = true
+  }
+  staging = {
+    vmid_range_start = 1100
+    vmid_range_end   = 1199
+    pool_id          = "viavitae-staging"
+    pool_comment     = "Pre-production and DR drill target."
+    disposable       = false
+  }
+  prod = {
+    vmid_range_start = 1200
+    vmid_range_end   = 1399
+    pool_id          = "viavitae-prod"
+    pool_comment     = "Production cluster. Holds tenant personal data — INFRA-001."
+    disposable       = false
+  }
+}
+
+# Shared infrastructure: load balancers, monitoring store, identity provider,
+# databases, CRM, CI runners. Allocated from 900-999 by terraform/envs/prod, because
+# these serve the whole platform rather than one environment.
+shared_vmid_range_start = 900
+shared_vmid_range_end   = 999
+
+# Reserved for restore scratch VMs, per docs/runbooks/backup-restore.md. Must be a
+# sub-block of the shared block, and must stay empty: a VM allocated here removes the
+# place a restore puts its scratch VM during an incident.
+restore_vmid_range_start = 950
+restore_vmid_range_end   = 959
+
+node_names = ["pve-01", "pve-02"]
+
+# There is deliberately no default pool. An implicit default pool is where unowned
+# VMs accumulate, and an unowned VM is a VM nobody patches, nobody backs up and
+# nobody can explain. Every VM belongs to one of the environment pools above.

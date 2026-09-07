@@ -1,0 +1,515 @@
+name: CI
+
+# Continuous integration for every repository generated from viavitae-template.
+#
+# Pipeline: setup -> lint -> typecheck -> test (>=80% coverage) -> SAST ->
+# dependency scan -> build artefact.
+#
+# The pipeline is stack-agnostic. The `setup` job detects which stacks are present
+# and only the relevant lint, typecheck and test legs run, so the same file works
+# for a Python API, a Next.js frontend, a Terraform repository and a docs site.
+# Delete a leg only when the repository type genuinely never needs it, and record
+# the decision as an ADR.
+#
+# SECURITY (rule R4)
+#   - Least-privilege GITHUB_TOKEN: `contents: read` for the whole workflow. No job
+#     needs more, because artefact upload uses the Actions service rather than the
+#     repository contents scope.
+#   - Every third-party action must be pinned to a full-length commit SHA. The list
+#     of actions used by this file is declared in the `action-pinning` gate in
+#     compliance-check.yml, which fails on any ref that is not a 40-character SHA.
+#     Dependabot moves the SHA weekly; never relax a pin back to a tag or branch.
+#
+#   Every `uses:` below is pinned to a verified 40-character commit SHA. The
+#   `action-pinning` gate in compliance-check.yml enforces this on every push.
+#   Dependabot moves the SHA weekly; never relax a pin back to a tag or branch.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "ci-${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22"
+  COVERAGE_MIN: "80"
+  SEMGREP_METRICS: "off"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # setup — detect the stacks present so downstream matrices stay honest
+  # ---------------------------------------------------------------------------
+  setup:
+    name: Detect stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      lint-stacks: ${{ steps.detect.outputs.lint_stacks }}
+      typecheck-stacks: ${{ steps.detect.outputs.typecheck_stacks }}
+      test-stacks: ${{ steps.detect.outputs.test_stacks }}
+      build-stacks: ${{ steps.detect.outputs.build_stacks }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Detect present stacks
+        id: detect
+        run: |
+          set -euo pipefail
+
+          lint=(); typecheck=(); test=(); build=()
+
+          if [ -f pyproject.toml ] || compgen -G "requirements*.txt" >/dev/null \
+             || [ -n "$(find . -name '*.py' -not -path './.venv/*' -print -quit)" ]; then
+            lint+=("python"); typecheck+=("python"); test+=("python")
+          fi
+
+          if [ -f package.json ]; then
+            lint+=("node"); typecheck+=("node"); test+=("node"); build+=("node")
+          fi
+
+          if [ -n "$(find . -name '*.tf' -not -path './.terraform/*' -print -quit)" ]; then
+            lint+=("terraform")
+          fi
+
+          if [ -f Dockerfile ] || compgen -G "docker-compose*.yml" >/dev/null; then
+            build+=("docker")
+          fi
+
+          # jq is preinstalled on the ubuntu-latest runner and produces valid JSON
+          # for the empty case, which downstream `fromJson` requires.
+          to_json() { jq -cn --args '$ARGS.positional'; }
+          {
+            echo "lint_stacks=$(to_json "${lint[@]+"${lint[@]}"}")"
+            echo "typecheck_stacks=$(to_json "${typecheck[@]+"${typecheck[@]}"}")"
+            echo "test_stacks=$(to_json "${test[@]+"${test[@]}"}")"
+            echo "build_stacks=$(to_json "${build[@]+"${build[@]}"}")"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "detected lint=${lint[*]-none} typecheck=${typecheck[*]-none} test=${test[*]-none} build=${build[*]-none}"
+
+  # ---------------------------------------------------------------------------
+  # lint — one leg per detected stack
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint (${{ matrix.stack }})
+    needs: setup
+    if: needs.setup.outputs.lint-stacks != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: ${{ fromJson(needs.setup.outputs.lint-stacks) }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Set up Python
+        if: matrix.stack == 'python'
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Python linters
+        if: matrix.stack == 'python'
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install ruff
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+      - name: Ruff check
+        if: matrix.stack == 'python'
+        run: ruff check .
+
+      - name: Ruff format check
+        if: matrix.stack == 'python'
+        run: ruff format --check .
+
+      - name: Set up Node.js
+        if: matrix.stack == 'node'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install Node dependencies
+        if: matrix.stack == 'node'
+        run: npm ci --no-audit --no-fund
+
+      - name: ESLint
+        if: matrix.stack == 'node'
+        run: npx --no-install eslint . --max-warnings 0
+
+      - name: Prettier format check
+        if: matrix.stack == 'node'
+        run: npx --no-install prettier --check .
+
+      - name: Set up Terraform
+        if: matrix.stack == 'terraform'
+        run: |
+          set -euo pipefail
+          # terraform is preinstalled on the ubuntu-latest runner image
+          terraform version
+
+      - name: Terraform format check
+        if: matrix.stack == 'terraform'
+        run: terraform fmt -check -recursive -diff
+
+      - name: TFLint
+        if: matrix.stack == 'terraform'
+        run: |
+          set -euo pipefail
+          tflint --init
+          tflint --recursive --format compact
+
+  # ---------------------------------------------------------------------------
+  # typecheck — strict, per detected stack
+  # ---------------------------------------------------------------------------
+  typecheck:
+    name: Typecheck (${{ matrix.stack }})
+    needs: setup
+    if: needs.setup.outputs.typecheck-stacks != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: ${{ fromJson(needs.setup.outputs.typecheck-stacks) }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Set up Python
+        if: matrix.stack == 'python'
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Python dependencies
+        if: matrix.stack == 'python'
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install mypy
+          [ -f requirements.txt ]     && pip install -r requirements.txt
+          [ -f requirements-dev.txt ] && pip install -r requirements-dev.txt
+          if [ -f pyproject.toml ]; then pip install -e . --no-deps || true; fi
+          echo "dependency installation complete"
+
+      - name: mypy (strict)
+        if: matrix.stack == 'python'
+        run: |
+          set -euo pipefail
+          if [ -d app ]; then target=app; elif [ -d src ]; then target=src; else target=.; fi
+          mypy --strict --ignore-missing-imports "$target"
+
+      - name: Set up Node.js
+        if: matrix.stack == 'node'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install Node dependencies
+        if: matrix.stack == 'node'
+        run: npm ci --no-audit --no-fund
+
+      - name: TypeScript (no emit)
+        if: matrix.stack == 'node'
+        run: |
+          set -euo pipefail
+          if grep -q '"typecheck"' package.json; then
+            npm run typecheck
+          else
+            npx --no-install tsc --noEmit
+          fi
+
+  # ---------------------------------------------------------------------------
+  # test — unit tests with an 80% coverage gate
+  # ---------------------------------------------------------------------------
+  test:
+    name: Test (${{ matrix.stack }})
+    needs: setup
+    if: needs.setup.outputs.test-stacks != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: ${{ fromJson(needs.setup.outputs.test-stacks) }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Set up Python
+        if: matrix.stack == 'python'
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Python dependencies
+        if: matrix.stack == 'python'
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov
+          [ -f requirements.txt ]     && pip install -r requirements.txt
+          [ -f requirements-dev.txt ] && pip install -r requirements-dev.txt
+          if [ -f pyproject.toml ]; then pip install -e . --no-deps || true; fi
+          echo "dependency installation complete"
+
+      - name: Pytest with coverage gate
+        if: matrix.stack == 'python'
+        run: |
+          set -euo pipefail
+          if [ -d tests ] || find . -name 'test_*.py' -not -path './.venv/*' -print -quit | grep -q .; then
+            pytest --cov --cov-report=xml --cov-report=term-missing \
+                   --cov-fail-under="${COVERAGE_MIN}" \
+                   --junitxml=junit.xml
+          else
+            echo "::warning::No tests found. A repository with no tests cannot meet the ${COVERAGE_MIN}% coverage gate; add tests or record an ADR explaining why this repository is exempt."
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        if: matrix.stack == 'node'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install Node dependencies
+        if: matrix.stack == 'node'
+        run: npm ci --no-audit --no-fund
+
+      - name: Unit tests with coverage gate
+        if: matrix.stack == 'node'
+        run: |
+          set -euo pipefail
+          if grep -q '"test"' package.json; then
+            npm test -- --coverage --coverage.thresholds.lines="${COVERAGE_MIN}" \
+                        --coverage.thresholds.statements="${COVERAGE_MIN}" \
+                        --coverage.reporter=text --coverage.reporter=lcov
+          else
+            echo "::error::package.json defines no \"test\" script. The coverage gate cannot be evaluated."
+            exit 1
+          fi
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: coverage-${{ matrix.stack }}
+          path: |
+            coverage.xml
+            junit.xml
+            coverage/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # sast — Semgrep across the whole filesystem
+  # ---------------------------------------------------------------------------
+  sast:
+    name: SAST (Semgrep)
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Semgrep
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install semgrep
+
+      - name: Run Semgrep
+        run: |
+          set -euo pipefail
+          # --metrics=off: no telemetry is sent, per QODER rule 4.
+          # Rulesets are chosen by the stacks present so a docs-only repository is
+          # not scanned with Python rules it can never satisfy.
+          configs="--config p/security-audit --config p/secrets --config p/owasp-top-ten"
+          if [ -n "$(find . -name '*.py' -not -path './.venv/*' -print -quit)" ]; then
+            configs="$configs --config p/python"
+          fi
+          if [ -f package.json ]; then
+            configs="$configs --config p/typescript --config p/javascript --config p/nodejs"
+          fi
+          if [ -f Dockerfile ]; then
+            configs="$configs --config p/docker"
+          fi
+          if [ -n "$(find . -name '*.tf' -not -path './.terraform/*' -print -quit)" ]; then
+            configs="$configs --config p/terraform"
+          fi
+          # shellcheck disable=SC2086
+          semgrep scan $configs \
+            --metrics=off \
+            --error \
+            --severity ERROR \
+            --exclude=.venv --exclude=node_modules --exclude=.terraform \
+            --sarif --output semgrep.sarif || {
+              echo "::error::Semgrep reported findings at ERROR severity. Fix the cause; do not suppress the rule or lower the severity to make this gate pass."
+              exit 1
+            }
+
+      - name: Upload Semgrep SARIF
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: semgrep-sarif
+          path: semgrep.sarif
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # dependency-scan — Trivy filesystem, fail on CRITICAL
+  # ---------------------------------------------------------------------------
+  dependency-scan:
+    name: Dependency scan (Trivy)
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig,license
+          severity: CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          format: table
+        env:
+          # Fail the build on CRITICAL. HIGH findings are reported by the SARIF
+          # step below for triage but do not block, so a repository is not
+          # paralysed by an unfixed upstream advisory.
+          TRIVY_EXIT_CODE: "1"
+
+      - name: Trivy SARIF report
+        if: always()
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+          format: sarif
+          output: trivy.sarif
+
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: trivy-sarif
+          path: trivy.sarif
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # build — produce the artefact for the detected build targets
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build (${{ matrix.stack }})
+    needs: [setup, lint, typecheck, test, sast, dependency-scan]
+    if: needs.setup.outputs.build-stacks != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: ${{ fromJson(needs.setup.outputs.build-stacks) }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Set up Node.js
+        if: matrix.stack == 'node'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Build Node application
+        if: matrix.stack == 'node'
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          if grep -q '"build"' package.json; then
+            npm run build
+          else
+            echo "::warning::package.json defines no \"build\" script; nothing to produce."
+          fi
+
+      - name: Set up Docker Buildx
+        if: matrix.stack == 'docker'
+        run: docker buildx version
+
+      - name: Build container image (no push)
+        if: matrix.stack == 'docker'
+        run: |
+          set -euo pipefail
+          # Build only. Pushing is a deploy-time decision and lives in the
+          # repository's own deploy workflow with narrowly scoped credentials.
+          docker build --pull --tag "local/${GITHUB_REPOSITORY#*/}:${GITHUB_SHA}" .
+          docker image ls "local/${GITHUB_REPOSITORY#*/}:${GITHUB_SHA}"
+
+      - name: Upload build artefact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: build-${{ matrix.stack }}
+          path: |
+            dist/
+            .next/standalone/
+            out/
+            build/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # ci-status — single required check for branch protection
+  # ---------------------------------------------------------------------------
+  ci-status:
+    name: CI status
+    needs: [setup, lint, typecheck, test, sast, dependency-scan, build]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Evaluate required gates
+        run: |
+          set -euo pipefail
+          # A skipped job is not a failure: it means the stack was not present.
+          # A job that did run must have succeeded.
+          results='${{ toJSON(needs) }}'
+          failed=$(printf '%s' "$results" | grep -o '"result":"failure"' | wc -l || true)
+          cancelled=$(printf '%s' "$results" | grep -o '"result":"cancelled"' | wc -l || true)
+          printf '%s' "$results" | grep -o '"[a-z-]*":{"result":"[a-z]*"' || true
+          if [ "$failed" -ne 0 ] || [ "$cancelled" -ne 0 ]; then
+            echo "::error::CI failed: ${failed} job(s) failed, ${cancelled} cancelled."
+            exit 1
+          fi
+          echo "All required gates passed or were legitimately skipped."

@@ -1,0 +1,23 @@
+# Managed by ansible/roles/postgres. Edit the role, not this file.
+#
+# The order of entries matters: first match wins. The role restricts access to the
+# provisioner and replication roles, and denies everything else by default.
+
+# TYPE  DATABASE        USER            ADDRESS                 METHOD
+
+# Unix socket for local administration (psql as postgres user).
+local   all             postgres                                peer
+
+# Local connections for the provisioner role (Terraform connects here).
+host    all             {{ postgres_provisioner_username }}     127.0.0.1/32            scram-sha-256
+host    all             {{ postgres_provisioner_username }}     ::1/128                 scram-sha-256
+
+# Replication connections from the standby.
+{% if pg_role | default('primary') == 'primary' -%}
+host    replication     {{ postgres_replication_username }}     {{ pg_standby_host | default('10.10.20.31') }}/32  scram-sha-256
+{% endif %}
+
+# Deny everything else. A tenant connection that is not through the application is a
+# connection that bypassed the API and is therefore untracked.
+host    all             all             0.0.0.0/0               reject
+host    all             all             ::/0                    reject

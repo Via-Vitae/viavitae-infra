@@ -1,0 +1,30 @@
+---
+# Defaults for the Bitrix24 role. Anything here can be overridden per group or per
+# host; anything that must not be overridden belongs in a task assertion instead.
+
+bitrix24_install_dir: /opt/bitrix24
+bitrix24_data_dir: /var/lib/bitrix24
+bitrix24_config_dir: /etc/bitrix24
+
+# Bitrix24 is a LAMP stack. The database is on a separate host (crm-db-01); the
+# application server runs Apache + PHP only.
+bitrix24_db_host: "{{ bitrix24_db_address | default('10.10.40.41') }}"
+bitrix24_db_port: 3306
+bitrix24_db_name: bitrix24
+bitrix24_db_user: bitrix24
+bitrix24_db_password: "{{ bitrix24_db_password | default('REPLACE_ME') }}"
+
+# HTTP settings. Bitrix24 listens on localhost only; HAProxy terminates TLS and
+# forwards to this port.
+bitrix24_http_port: 80
+
+# PHP settings. Bitrix24 requires specific PHP settings; the defaults are from the
+# vendor's documentation.
+bitrix24_php_memory_limit: "512M"
+bitrix24_php_max_execution_time: 60
+bitrix24_php_upload_max_filesize: "64M"
+bitrix24_php_post_max_size: "64M"
+
+# Logging. Bitrix24 logs to /var/log/bitrix24; the log level is INFO to avoid
+# filling the disk with debug noise.
+bitrix24_log_level: INFO

@@ -1,0 +1,22 @@
+---
+# Placeholder for the web component in the prod environment.
+#
+# The actual workload manifests (Deployment, Service, Ingress) live in the
+# application repository, not here. This repository owns the infrastructure
+# layer; the application repository owns the workload layer. Argo CD deploys
+# from k8s/platform/prod/web/, so when the application repository is
+# wired up, a Kustomization or Helm chart will reference it from this path.
+#
+# Until then, this ConfigMap is the only resource so that Argo CD has something
+# to sync without erroring on an empty directory.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-prod-placeholder
+  labels:
+    app.kubernetes.io/component: web
+    app.kubernetes.io/environment: prod
+    app.kubernetes.io/part-of: viavitae
+data:
+  purpose: "placeholder until the application repository is wired up"

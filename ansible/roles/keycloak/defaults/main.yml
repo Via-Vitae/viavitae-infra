@@ -1,0 +1,34 @@
+---
+# Defaults for the Keycloak role. Anything here can be overridden per group or per
+# host; anything that must not be overridden belongs in a task assertion instead.
+
+keycloak_version: "25.0.1"
+keycloak_install_dir: /opt/keycloak
+keycloak_config_dir: /etc/keycloak
+keycloak_data_dir: /var/lib/keycloak
+
+keycloak_admin_user: admin
+keycloak_admin_password: "{{ keycloak_bootstrap_admin_password }}"
+
+# The public hostname is what Keycloak uses in the issuer field of tokens and in the
+# discovery document. It must match the hostname the application uses; a mismatch
+# breaks OIDC validation. Terraform writes it to /etc/viavitae/keycloak-hostname.
+keycloak_hostname: "{{ keycloak_public_hostname | default('sso.' + public_domain) }}"
+
+# Database connection. Keycloak connects to the tenant PostgreSQL instance (the same
+# one the application uses) for its own data. The connection parameters come from the
+# inventory; the password comes from vault.sops.yml.
+keycloak_db_host: "{{ postgres_address | default('10.10.20.30') }}"
+keycloak_db_port: 5432
+keycloak_db_name: keycloak
+keycloak_db_user: keycloak
+keycloak_db_password: "{{ pg_app_role_passwords.keycloak | default('REPLACE_ME') }}"
+
+# HTTP settings. Keycloak listens on localhost only; the reverse proxy (Traefik in
+# the cluster, or HAProxy on the LBs) terminates TLS and forwards to this port.
+keycloak_http_port: 8080
+keycloak_https_port: 8443
+
+# Logging. Keycloak's default log format is JSON, which is what Loki expects. The
+# log level is INFO; DEBUG would fill the disk with session state noise.
+keycloak_log_level: INFO

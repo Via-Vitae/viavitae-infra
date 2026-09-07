@@ -1,0 +1,23 @@
+# Managed by ansible/roles/monitoring-agent. Edit the role, not this file.
+
+[Unit]
+Description=Grafana Alloy - Observability Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart={{ alloy_install_dir }}/alloy run --server.http.listen-addr=127.0.0.1:12345 {{ alloy_config_dir }}/config.alloy
+Restart=on-failure
+RestartSec=10
+
+User=root
+Group=root
+
+ProtectSystem=full
+ProtectHome=true
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,43 @@
+---
+# Argo CD project for platform workloads. Restricts the source repositories,
+# destination clusters and namespaces, and the resource kinds that may be deployed.
+#
+# A workload that is not in this project cannot be deployed by Argo CD, and a
+# workload that targets a namespace not listed here cannot be deployed either.
+
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+spec:
+  description: ViaVitae platform workloads
+
+  sourceRepos:
+    - https://github.com/Via-Vitae/viavitae-infra.git
+
+  destinations:
+    - namespace: api
+      server: https://kubernetes.default.svc
+    - namespace: web
+      server: https://kubernetes.default.svc
+    - namespace: monitoring
+      server: https://kubernetes.default.svc
+    - namespace: ingress
+      server: https://kubernetes.default.svc
+    - namespace: cert-manager
+      server: https://kubernetes.default.svc
+
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: "*"
+    - group: apps
+      kind: "*"
+    - group: networking.k8s.io
+      kind: "*"
+    - group: monitoring.coreos.com
+      kind: "*"

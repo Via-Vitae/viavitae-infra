@@ -1,0 +1,20 @@
+# Uptime Kuma on mon-01. The container runs on the prod VLAN and probes the
+# public endpoints from outside the cluster, the way a customer does (X15).
+#
+# The data directory is on the mon-01 ZFS dataset, which is encrypted at rest.
+# Uptime Kuma uses SQLite; the database is in /data.
+
+version: "3.8"
+
+services:
+  uptime-kuma:
+    image: "louislam/uptime-kuma:1.23.15@sha256:placeholder"
+    container_name: uptime-kuma
+    restart: unless-stopped
+    ports:
+      - "10.10.20.10:3001:3001"
+    volumes:
+      - /opt/uptime-kuma/data:/app/data
+    environment:
+      - UPTIME_KUMA_PORT=3001
+      - UPTIME_KUMA_DISABLE_FRAME_SAMEORIGIN=true

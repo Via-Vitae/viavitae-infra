@@ -1,0 +1,203 @@
+# Example variable values for the `prod` environment.
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# terraform.tfvars is git-ignored; this file is not. Every required variable appears
+# here **except the two sensitive ones**, which must never be in a file:
+#
+#   PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD, PGSSLMODE
+#                                          from the prod-plan / prod-apply GitHub
+#                                          Environments; the plan Environment holds a
+#                                          read-only role
+#   TF_VAR_dns_update_key_secret           from the prod GitHub Environments
+#
+# The `prod-plan` Environment holds a read-only Proxmox token, a read-only database
+# role and no SSH key. `prod-apply` holds the write credentials, requires a human
+# approval, and requires the operator to type `prod` into the confirmation field.
+#
+# The values below match the allocation table in docs/network-topology.md and the
+# committed budget in docs/capacity-plan.md. Changing one without the other is how a
+# document stops describing the platform.
+
+# --- state -------------------------------------------------------------------
+
+state_bucket   = "viavitae-infra-tfstate"
+state_region   = "eu-central-1"
+state_endpoint = "https://s3.eu-central-1.viavitae-state.example.com"
+
+# --- cluster -----------------------------------------------------------------
+
+node_names  = ["pve-01", "pve-02"]
+k3s_version = "v1.36.4+k3s1"
+
+# 1 in the two-node pilot. Setting this to 3 without a third entry in node_names
+# fails the plan, by design — see ADR-002 condition 1.
+control_plane_count = 1
+api_vip_address     = ""
+worker_count        = 4
+
+# node => HA priority. These numbers are the mechanism behind the N-1 start order in
+# docs/capacity-plan.md; the two documents record one decision.
+ha_group_nodes = {
+  pve-01 = 10
+  pve-02 = 9
+}
+
+# Restricted group for the database, the identity provider and the load balancers.
+ha_group_critical_nodes = {
+  pve-01 = 100
+  pve-02 = 90
+}
+
+# --- storage and template ----------------------------------------------------
+
+datastore_id          = "local-zfs"
+snippets_datastore_id = "local"
+template_vm_id        = 9000
+template_node_name    = "pve-01"
+
+# --- network -----------------------------------------------------------------
+
+vlan_ids = {
+  mgmt = 10
+  prod = 20
+  dmz  = 40
+}
+
+subnet_prefixes = {
+  mgmt = "10.10.10.0/24"
+  prod = "10.10.20.0/24"
+  dmz  = "10.10.40.0/24"
+}
+
+ipv4_gateways = {
+  mgmt = "10.10.10.1"
+  prod = "10.10.20.1"
+  dmz  = "10.10.40.1"
+}
+
+control_plane_address_offset = 40
+worker_address_offset        = 50
+
+addresses = {
+  postgres_primary = "10.10.20.30/24"
+  postgres_standby = "10.10.20.31/24"
+  keycloak         = "10.10.20.20/24"
+  monitoring       = "10.10.20.10/24"
+  bitrix24         = "10.10.40.40/24"
+  bitrix24_db      = "10.10.40.41/24"
+}
+
+# Dual-homed: management on VLAN 10, data path on VLAN 40.
+load_balancer_addresses = [
+  { mgmt = "10.10.10.10/24", dmz = "10.10.40.11/24" },
+  { mgmt = "10.10.10.11/24", dmz = "10.10.40.12/24" },
+]
+
+runner_addresses = ["10.10.10.15/24", "10.10.10.16/24"]
+
+dns_domain  = "viavitae.internal"
+dns_servers = ["10.10.10.1", "10.10.10.2"]
+
+ssh_public_keys = [
+  "ssh-ed25519 AAAA-replace-with-a-real-public-key-base64-blob platform@viavitae",
+]
+
+public_vip      = "203.0.113.10"
+public_hostname = "lb.viavitae.com"
+
+# --- VMIDs -------------------------------------------------------------------
+#
+# Cluster VMs come from the prod block (1200-1399); everything else from the shared
+# block (900-999). 950-959 stays empty: it is the restore scratch range used by
+# docs/runbooks/backup-restore.md, and a VM allocated there removes the place a
+# restore puts its scratch VM.
+
+vmids = {
+  control_plane_base = 1200
+  worker_base        = 1210
+  postgres_primary   = 930
+  postgres_standby   = 931
+  keycloak           = 920
+  monitoring         = 910
+  bitrix24           = 940
+  bitrix24_db        = 941
+  load_balancer_base = 900
+  runner_base        = 991
+}
+
+# --- database ----------------------------------------------------------------
+
+# The connection is configured through libpq environment variables (PGHOST,
+# PGPORT, PGDATABASE, PGUSER, PGPASSWORD, PGSSLMODE), so no database credential is
+# a Terraform variable and none can reach a file, a plan input listing or a state
+# export. Only the database *name* is a variable, because the tenant module needs it.
+database_name       = "viavitae"
+migration_role_name = "migrations"
+wal_g_bucket                  = "viavitae-wal-prod"
+
+# False in the pilot: 32 GiB for a standby is the difference between fitting in the
+# 384 GiB budget and not fitting. Enabling it is a node-3 decision. See ADR-003.
+postgres_standby_enabled  = false
+postgres_data_disk_size_gb = 500
+
+# --- identity ----------------------------------------------------------------
+
+keycloak_public_hostname = "sso.viavitae.com"
+
+# --- monitoring --------------------------------------------------------------
+
+monitoring = {
+  loki_bucket          = "viavitae-loki-prod"
+  metrics_bucket       = "viavitae-metrics-prod"
+  uptime_kuma_hostname = "status.viavitae.com"
+  disk_size_gb         = 400
+}
+
+# --- Bitrix24 ----------------------------------------------------------------
+#
+# Disabled, and both approvals false. Enabling it in prod without an approved legal
+# review and an approved INFRA-002 fails the plan — ADR-007 conditions 7 and 8, and
+# INFRA-001 condition C5. The empty references are deliberate: an approval without a
+# reference is an assertion, not a record.
+
+bitrix24 = {
+  enabled                 = false
+  public_hostname         = "crm.viavitae.com"
+  legal_review_approved   = false
+  legal_review_reference  = ""
+  dpia_infra_002_approved = false
+  dpia_reference          = ""
+  egress_allow_list       = ["www.bitrix24.com"]
+}
+
+# --- DNS ---------------------------------------------------------------------
+
+dns_update_server        = "10.10.10.1"
+dns_update_key_name      = "viavitae-tf-prod."
+dns_update_key_algorithm = "hmac-sha256"
+dns_zone                 = "viavitae.com."
+
+# --- tenants -----------------------------------------------------------------
+#
+# Empty on purpose. Provisioning a production tenant is a `prod` change class: it
+# needs the plan attached, a rollback answer, and the DPIA gate below. The shape of
+# an entry is:
+#
+#   tenants = {
+#     acmeparish = {
+#       display_name    = "Acme Parish"
+#       plan            = "essential"
+#       lifecycle_state = "active"
+#     }
+#   }
+#
+# `lifecycle_state = "suspended"` sets NOLOGIN on the tenant's role, which stops the
+# application at the database without a deployment. `"erasure_pending"` additionally
+# revokes its grants; docs/runbooks/backup-restore.md §Erasure takes it from there.
+
+tenants = {}
+
+# INFRA-001's managing-director signature is pending, so this is false, and
+# modules/tenant refuses to create a prod tenant until it is true.
+dpia_infra_001_signed_off = false

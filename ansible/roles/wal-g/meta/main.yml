@@ -1,0 +1,27 @@
+---
+# Role metadata. `galaxy_info` is what ansible-lint's production profile checks, and
+# `dependencies` is what makes the ordering explicit instead of implicit in whichever
+# playbook happened to list the roles first.
+
+galaxy_info:
+  author: ViaVitae platform team
+  description: Install and configure WAL-G for continuous archiving and point-in-time recovery.
+  company: ViaVitae IT Technologies
+  license: proprietary
+  min_ansible_version: "2.17"
+  platforms:
+    - name: Debian
+      versions:
+        - bookworm
+  galaxy_tags:
+    - infrastructure
+    - viavitae
+  # Not published to Galaxy. A role that is installable by anyone is a role whose
+  # name can be squatted, and a squatted role with this name would be pulled by every
+  # future `requirements.yml` that mentions it.
+  namespace: viavitae
+
+dependencies:
+  - postgres
+
+# is applied to Debian 13 will happily install package names that do not exist.

@@ -1,0 +1,61 @@
+---
+# k3s additional nodes
+#
+# Joins every remaining node — additional control planes and all workers — to the
+# cluster bootstrapped by `k3s-bootstrap.yml`. Safe to re-run and to run against a
+# subset with `--limit`.
+#
+# Node identity comes from the same `/etc/viavitae/` files Terraform wrote, so a node
+# rebuilt by `terraform apply` joins with the role and version the plan declared.
+#
+#   ansible-playbook -i inventories/prod/hosts.yml --limit 'k3s_cluster:!prod-cp-0' playbooks/k3s-nodes.yml
+#
+# Always with `--check --diff` first, except where this file says otherwise: a
+# `--check` run that reports no changes on a host that is visibly wrong is the signal
+# that the role has stopped describing reality.
+
+- name: Join k3s nodes to the cluster
+  hosts: k3s_cluster
+  become: true
+  gather_facts: true
+  # Control planes first and one at a time, because each one is an etcd member and
+  # adding two at once can leave the cluster without a quorum mid-join. Workers then
+  # follow in parallel, since a worker joining is not a consensus event.
+  serial:
+    - 1
+    - "30%"
+
+  pre_tasks:
+    - name: Read the pinned k3s version and the node role
+      ansible.builtin.slurp:
+        src: "/etc/viavitae/{{ item }}"
+      loop:
+        - k3s-version
+        - k3s-role
+      register: provisioning_facts
+      failed_when: false
+
+    - name: Fail if the node was not provisioned by Terraform
+      ansible.builtin.assert:
+        that:
+          - provisioning_facts.results | selectattr('content', 'defined') | list | length == 2
+        fail_msg: >-
+          {{ inventory_hostname }} is missing its /etc/viavitae/ provisioning files.
+          It was not created by terraform/modules/k3s-node, so this playbook does not
+          know what role or version it should have. Recreate the VM rather than
+          guessing: a node that joins with the wrong role is an etcd member nobody
+          declared, and the ADR-002 quorum check cannot see it.
+
+    - name: Confirm the bootstrap cluster is reachable
+      ansible.builtin.wait_for:
+        host: "{{ groups['k3s_control_plane'] | first }}"
+        port: 6443
+        timeout: 60
+      delegate_to: localhost
+      run_once: true
+
+  roles:
+    - role: k3s
+      vars:
+        k3s_control_node: "{{ (provisioning_facts.results[1].content | b64decode | trim) == 'control_plane' }}"
+

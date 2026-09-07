@@ -1,0 +1,118 @@
+---
+# Install and configure Bitrix24. The role is gated on ADR-007 conditions 7 and 8;
+# it refuses to run if the approvals are not present in the inventory.
+
+- name: Assert the platform is the one this role was written for
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == "Debian"
+      - ansible_distribution_major_version == "12"
+    fail_msg: >-
+      {{ inventory_hostname }} runs {{ ansible_distribution }}
+      {{ ansible_distribution_major_version }}. Bitrix24 is certified for Debian 12;
+      a different distribution may need different package names or PHP versions.
+
+- name: Fail immediately when the group is empty
+  ansible.builtin.assert:
+    that:
+      - "'bitrix24' in group_names"
+    fail_msg: >-
+      {{ inventory_hostname }} is not in the `bitrix24` group. This role is only
+      applied to hosts in the `bitrix24` group; applying it elsewhere would install
+      a LAMP stack on a host that is not designated for Bitrix24.
+
+- name: Require both approvals in production
+  ansible.builtin.assert:
+    that:
+      - bitrix24_legal_review_approved | default(false) | bool
+      - bitrix24_dpia_infra_002_approved | default(false) | bool
+    fail_msg: >-
+      {{ inventory_hostname }} is in the `bitrix24` group in a production inventory,
+      but ADR-007 conditions 7 and 8 are not met. The Terraform module refuses to
+      create the VM without these approvals; this role refuses to configure it for
+      the same reason. Set the approvals in the inventory or remove the host.
+  when: environment_name == 'prod'
+
+- name: Confirm the host is in the dmz
+  ansible.builtin.assert:
+    that:
+      - "'dmz' in group_names"
+    fail_msg: >-
+      {{ inventory_hostname }} is in the `bitrix24` group but not in the `dmz` group.
+      Bitrix24 is a vendor LAMP stack and must be isolated in the dmz VLAN per
+      docs/network-topology.md. A host in any other VLAN is a network topology
+      violation.
+
+- name: Install Apache, PHP and dependencies
+  ansible.builtin.apt:
+    name:
+      - apache2
+      - libapache2-mod-php8.2
+      - php8.2-mysql
+      - php8.2-gd
+      - php8.2-xml
+      - php8.2-mbstring
+      - php8.2-curl
+      - php8.2-zip
+      - mariadb-client
+    state: present
+    update_cache: true
+    cache_valid_time: "{{ apt_cache_valid_time | default(3600) }}"
+
+- name: Create the Bitrix24 user
+  ansible.builtin.user:
+    name: bitrix24
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ bitrix24_install_dir }}"
+    create_home: false
+
+- name: Create the Bitrix24 directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: bitrix24
+    group: www-data
+    mode: "0755"
+  loop:
+    - "{{ bitrix24_install_dir }}"
+    - "{{ bitrix24_data_dir }}"
+    - "{{ bitrix24_config_dir }}"
+
+- name: Configure Apache
+  ansible.builtin.template:
+    src: apache-bitrix24.conf.j2
+    dest: /etc/apache2/sites-available/bitrix24.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload apache
+
+- name: Enable the Bitrix24 site
+  ansible.builtin.command:
+    cmd: a2ensite bitrix24.conf
+  register: a2ensite_result
+  changed_when: "'Enabling site' in a2ensite_result.stdout"
+  notify: Reload apache
+
+- name: Configure PHP
+  ansible.builtin.template:
+    src: php-bitrix24.ini.j2
+    dest: /etc/php/8.2/apache2/conf.d/99-bitrix24.ini
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload apache
+
+- name: Ensure Apache is started and enabled
+  ansible.builtin.systemd:
+    name: apache2
+    state: started
+    enabled: true
+
+- name: Report the Bitrix24 state
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }}: Bitrix24 installed, listening on port
+      {{ bitrix24_http_port }}, database = {{ bitrix24_db_host }}:{{ bitrix24_db_port }}.

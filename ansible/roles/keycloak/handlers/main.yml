@@ -1,0 +1,16 @@
+---
+- name: Verify Keycloak installation
+  ansible.builtin.command:
+    cmd: "{{ keycloak_install_dir }}/bin/kc.sh --version"
+  register: keycloak_version_check
+  changed_when: false
+  failed_when: "'Keycloak' not in keycloak_version_check.stdout"
+
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart keycloak
+  ansible.builtin.systemd:
+    name: keycloak
+    state: restarted

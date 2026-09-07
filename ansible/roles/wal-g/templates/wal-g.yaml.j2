@@ -1,0 +1,25 @@
+# Managed by ansible/roles/wal-g. Edit the role, not this file.
+#
+# WAL-G configuration for continuous archiving and point-in-time recovery. The
+# credentials come from vault.sops.yml; the bucket name is not secret.
+
+WALG_S3_PREFIX: "{{ postgres_walg_bucket | default('s3://viavitae-wal-' + environment_name) }}"
+AWS_ACCESS_KEY_ID: "{{ walg_s3_access_key }}"
+AWS_SECRET_ACCESS_KEY: "{{ walg_s3_secret_key }}"
+AWS_REGION: "{{ postgres_walg_region | default('eu-central-1') }}"
+
+WALG_COMPRESSION_METHOD: lz4
+WALG_DELTA_MAX_STEPS: 3
+
+WALG_BACKUP_COMPRESSION_METHOD: lz4
+WALG_BACKUP_FROM_PAGE: false
+
+# Retention. A backup that is deleted before the retention period expires is a backup
+# that was needed; a backup that is kept forever is a backup that fills the disk.
+WALG_RETENTION_COUNT: "{{ walg_retention_count }}"
+WALG_RETENTION_DAYS: "{{ walg_retention_days }}"
+
+# Logging. Every WAL-G operation is logged so that a failed backup is visible in the
+# PostgreSQL log, not just in the exit code of a cron job.
+WALG_LOG_LEVEL: INFO
+WALG_LOG_DESTINATION: stderr

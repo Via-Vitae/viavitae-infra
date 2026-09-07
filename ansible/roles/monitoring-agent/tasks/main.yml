@@ -1,0 +1,114 @@
+---
+# Install the observability agent on every host. The role installs Grafana Alloy (log
+# agent with redaction), node_exporter (host metrics), and conditionally Prometheus in
+# agent mode (on the hypervisors only).
+
+- name: Assert the platform is the one this role was written for
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == "Debian"
+      - ansible_distribution_major_version == "12"
+    fail_msg: >-
+      {{ inventory_hostname }} runs {{ ansible_distribution }}
+      {{ ansible_distribution_major_version }}. The binaries in this role are built for
+      Debian 12; a different distribution may need different binaries.
+
+- name: Refuse to run where the log endpoint is not configured
+  ansible.builtin.assert:
+    that:
+      - host_log_endpoints is defined
+      - host_log_endpoints | length > 0
+      - host_log_endpoints[0] is match('^https?://')
+    fail_msg: >-
+      {{ inventory_hostname }} has no usable `host_log_endpoints`
+      (got {{ host_log_endpoints | default('undefined') }}). Set it in the host's
+      group_vars: a list of absolute URLs for the Loki push endpoints. The role
+      refuses to run without it, because an agent that cannot ship is an agent that
+      buffers to disk until the disk is full, and then drops logs silently.
+
+- name: Install node_exporter
+  ansible.builtin.unarchive:
+    src: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    dest: "{{ node_exporter_install_dir }}"
+    remote_src: true
+    extra_opts: [--strip-components=1, "--wildcard", "*/node_exporter"]
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Verify node_exporter installation
+
+- name: Install the node_exporter systemd unit
+  ansible.builtin.template:
+    src: node_exporter.service.j2
+    dest: /etc/systemd/system/node_exporter.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart node_exporter
+
+- name: Ensure node_exporter is started and enabled
+  ansible.builtin.systemd:
+    name: node_exporter
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Install Grafana Alloy
+  ansible.builtin.unarchive:
+    src: "https://github.com/grafana/alloy/releases/download/v{{ alloy_version }}/alloy-linux-amd64.zip"
+    dest: "{{ alloy_install_dir }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Verify Alloy installation
+
+- name: Create the Alloy configuration directory
+  ansible.builtin.file:
+    path: "{{ alloy_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure Alloy for log collection with redaction
+  ansible.builtin.template:
+    src: alloy-logs.j2
+    dest: "{{ alloy_config_dir }}/config.alloy"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart alloy
+
+- name: Install the Alloy systemd unit
+  ansible.builtin.template:
+    src: alloy.service.j2
+    dest: /etc/systemd/system/alloy.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart alloy
+
+- name: Ensure Alloy is started and enabled
+  ansible.builtin.systemd:
+    name: alloy
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Install Prometheus agent mode on the hypervisors
+  ansible.builtin.include_tasks: prometheus-agent.yml
+  when: "'proxmox' in group_names"
+
+- name: Report the monitoring-agent state
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }}: node_exporter {{ node_exporter_version }} on port
+      {{ node_exporter_port }}, Alloy {{ alloy_version }} shipping to
+      {{ host_log_endpoints | join(', ') }}{% if 'proxmox' in group_names %},
+      Prometheus agent {{ prometheus_agent_version }} remote-writing to
+      {{ prometheus_remote_write_url | default('undefined') }}{% endif %}.

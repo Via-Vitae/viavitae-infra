@@ -1,0 +1,23 @@
+---
+# Defence-in-depth: every pod in every namespace can only receive ingress from pods
+# in the *same* namespace. Kubernetes NetworkPolicies are additive with the
+# default-deny (k8s/policies/network-policies/default-deny.yaml), so this policy
+# does not open any path that default-deny closed — it makes the same-namespace
+# constraint explicit, so a developer who reads the policies can see the isolation
+# boundary without having to reason about the absence of a rule.
+#
+# Cross-namespace traffic is already denied by default-deny plus the per-path
+# allow rules (allow-web-to-api, monitoring-scrape). This policy is a belt, not
+# a brace.
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: same-namespace-only
+spec:
+  podSelector: {}
+  ingress:
+    - from:
+        - podSelector: {}
+  policyTypes:
+    - Ingress

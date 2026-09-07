@@ -1,0 +1,14 @@
+# Managed by ansible/roles/common. Edit the role, not this file.
+#
+# NTP is not a convenience on this estate. Wrong clocks break TLS handshakes, break
+# Kerberos-style token validation in Keycloak, and — most damaging during an incident —
+# make logs from two hosts impossible to correlate.
+[Time]
+NTP={{ ntp_servers | join(' ') }}
+FallbackNTP=0.debian.pool.ntp.org 1.debian.pool.ntp.org
+# EEA-resolved pools. The time source is not personal data, but an NTP exchange does
+# disclose the source address to a server chosen by whoever controls the pool's DNS,
+# so the pool operators are effectively observers of our infrastructure's uptime.
+RootDistanceMaxSec=5
+PollIntervalMinSec=32
+PollIntervalMaxSec=2048

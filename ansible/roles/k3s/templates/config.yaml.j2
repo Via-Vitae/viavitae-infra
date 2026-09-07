@@ -1,0 +1,76 @@
+# Managed by ansible/roles/k3s. Edit the role, not this file.
+# Version {{ k3s_version }}, role {{ 'control_plane' if k3s_control_node else 'worker' }}.
+
+node-name: {{ inventory_hostname }}
+node-ip: {{ ansible_host }}
+data-dir: {{ k3s_data_dir }}
+
+# The token joins nodes to the cluster and therefore authorises a machine to become a
+# control-plane member. It is a secret, it comes from vault.sops.yml, and it is why this
+# file is mode 0600.
+token: {{ k3s_cluster_token }}
+
+{% if k3s_control_node %}
+# ADR-001 keeps the bundled components: traefik is the only ingress controller,
+# servicelb provides the NodePorts HAProxy forwards to, and coredns and metrics-server
+# are what every cluster needs. Disabling them means replacing them, and a second
+# implementation of the same function is a source of IP-allocation conflicts.
+cluster-init: {{ 'true' if (groups['k3s_control_plane'] | length == 1) else 'false' }}
+tls-san:
+  - {{ inventory_hostname }}
+  - {{ ansible_host }}
+{% for san in k3s_tls_san %}
+  - {{ san }}
+{% endfor %}
+{% if k3s_api_vip_file.content is defined %}
+  # The VIP, so that a kubeconfig pointing at it is served a valid certificate.
+  # Without the SAN, every client that uses the VIP fails TLS verification and the
+  # failure looks like a certificate problem rather than a missing SAN.
+  - {{ k3s_api_vip_file.content | b64decode | trim }}
+{% endif %}
+etcd-expose-metrics: true
+kube-apiserver-arg:
+  # Anonymous requests are what an unauthenticated scanner probes first, and what a
+  # misconfigured client falls back to.
+  - anonymous-auth=false
+  - audit-log-path=/var/log/k3s-audit.log
+  - audit-log-maxage=30
+  - audit-log-maxsize=100
+kube-controller-manager-arg:
+  - bind-address=127.0.0.1
+kube-scheduler-arg:
+  - bind-address=127.0.0.1
+etcd-snapshot-schedule-cron: "0 */6 * * *"
+etcd-snapshot-retention: 8
+# etcd snapshots are the cluster's only irreplaceable state. Every six hours with eight
+# generations retained is two days of recovery points, which is what makes "rebuild the
+# cluster from Git" survivable when Git has the manifests but not the state.
+{% else %}
+server: https://{{ groups['k3s_control_plane'][0] }}:6443
+{% if k3s_api_vip_file.content is defined %}
+# With a VIP the workers point at it, so that losing one control-plane member does not
+# take the data path with it.
+server: https://{{ k3s_api_vip_file.content | b64decode | trim }}:6443
+{% endif %}
+{% endif %}
+
+flannel-backend: {{ k3s_flannel_backend }}
+kubelet-arg:
+  - max-pods={{ k3s_kubelet_max_pods }}
+  # Image garbage collection is why the worker disks have `discard = true` in
+  # terraform/modules/k3s-node: without both, a zvol grows forever while the guest
+  # believes it has free space.
+  - image-gc-high-threshold=80
+  - image-gc-low-threshold=70
+  - eviction-hard=memory.available<256Mi,nodefs.available<5%
+  - eviction-soft=memory.available<512Mi,nodefs.available<10%
+  - eviction-soft-grace-period=memory.available=1m30s,nodefs.available=1m30s
+
+node-label:
+{% for key, value in (k3s_node_labels | combine({'viavitae.io/environment': environment_name, 'viavitae.io/role': 'control_plane' if k3s_control_node else 'worker'})).items() %}
+  - {{ key }}={{ value }}
+{% endfor %}
+{% for taint in k3s_node_taints %}
+node-taint:
+  - {{ taint }}
+{% endfor %}

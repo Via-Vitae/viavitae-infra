@@ -1,0 +1,93 @@
+# Shared variables for `staging`. Plaintext, committed, and containing no secret.
+#
+# Anything sensitive belongs in `vault.sops.yml` in this directory. The split is not
+# cosmetic: `all.yml` is reviewed by whoever opens the pull request, `vault.sops.yml`
+# is reviewed by whoever holds an age key, and those are deliberately different
+# audiences.
+
+# --- platform identity -------------------------------------------------------
+
+domain: viavitae.internal
+public_domain: viavitae.com
+ntp_servers:
+  - 0.europe.pool.ntp.org
+  - 1.europe.pool.ntp.org
+timezone: Europe/Vilnius
+
+# --- package and update policy ----------------------------------------------
+
+# Updates are applied inside a gated maintenance window by playbooks/update.yml,
+# never by unattended-upgrades on its own schedule. A kernel that reboots a database
+# host at 03:00 because a security update landed is an outage nobody authorised.
+unattended_upgrades_enabled: false
+update_reboot_policy: "maintenance_window_only"
+apt_cache_valid_time: 3600
+# The window playbooks/update.yml enforces, in host local time (Europe/Vilnius).
+# Narrow, and on the nights with the least traffic. Widening it is a change to this
+# file, which is reviewed, rather than a `-e` on a command line, which is not.
+maintenance_window_start_hour: 1
+maintenance_window_end_hour: 4
+
+# --- automation user ---------------------------------------------------------
+
+automation_user: viavitae
+# The key set itself is not declared here. `terraform/modules/proxmox-vm` owns
+# `ssh_public_keys`, cloud-init installs them on first boot, and it writes
+# /etc/viavitae/ssh-authorized-keys so that `roles/common` can compare the live
+# authorized_keys against what was declared and fail on any difference in either
+# direction. Declaring the keys a second time in the inventory would create two
+# sources of truth that disagree on the first key rotation.
+#
+# The private half lives with the operator and with CI, never in this repository:
+# a committed private key is in Git history permanently, and `git filter-repo` is
+# an incident response rather than a remedy.
+
+# --- hardening ---------------------------------------------------------------
+
+hardening_profile: cis_l1_server
+sshd_permit_root_login: "no"
+sshd_password_authentication: false
+sshd_max_auth_tries: 3
+sshd_allow_groups:
+  - viavitae-admin
+auditd_retention_days: 90
+aide_cron_hour: "4"
+
+# --- logging and monitoring --------------------------------------------------
+
+# Redaction happens in the agent, before anything leaves the host — not at query
+# time and not in Loki. Loki stores what it receives: a query-time filter leaves the
+# personal data on disk, in the index, and in every backup of the object store, which
+# is three copies of data INFRA-001 control M3 says must never be persisted. The
+# pipeline that performs it is `ansible/roles/monitoring-agent/templates/alloy-logs.j2`
+# and it is the only place where a redaction rule may be added.
+#
+# The endpoints are node addresses of *this environment's* cluster, on the Loki push
+# NodePort. Each environment runs its own stack (see docs/network-topology.md,
+# "Observability paths"), which is what keeps X12 and X13 intact: staging and dev
+# never address production, and the mgmt VLAN is still unreachable from everywhere.
+# More than one endpoint is listed where more than one node exists, because a single
+# address means a single node reboot silently stops log ingestion — and "the logs
+# stopped" is indistinguishable from "nothing happened".
+host_log_endpoints:
+  - "http://10.10.30.40:3100"
+
+node_exporter_port: 9100
+log_retention_days: 30
+
+# --- backups -----------------------------------------------------------------
+
+backup_retention:
+  daily: 14
+  weekly: 8
+# Daily for prod, weekly for staging and dev: a rehearsal environment whose data is
+# synthetic has no recovery point worth protecting nightly, and the backup window is
+# the constraint that decides it. backup/proxmox/vzdump-schedule.md records the
+# reasoning and the per-environment override.
+vzdump_daily_schedule: "02:00"
+vzdump_weekly_schedule: "Sun 03:00"
+vzdump_storage: pbs-backup
+vzdump_all_guests: false
+# The drill verifies a restore, not a job exit code. Level-1 verification (the job
+# ran) passes during a real failure; only level 3 has ever caught a defect here.
+drill_schedule: "quarterly"

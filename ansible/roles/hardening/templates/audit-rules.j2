@@ -1,0 +1,66 @@
+# Managed by ansible/roles/hardening. Edit the role, not this file.
+#
+# Retention is {{ auditd_retention_days }} days (INFRA-001 flow F5). The rules below are
+# the ones that answer "who changed what, and when", which is the question an incident
+# and an audit both ask.
+
+-D
+-b 8192
+-f 1
+# `--loginuid-immutable` would survive a reboot into a kernel that supports it; without
+# it, a process can change its own audit login UID and every subsequent record lies
+# about who did it.
+-e 2
+
+# Identity and authorisation changes. A user appearing in /etc/passwd that nobody
+# created is the clearest single indicator of a compromise.
+-w /etc/passwd -p wa -k identity
+-w /etc/group -p wa -k identity
+-w /etc/gshadow -p wa -k identity
+-w /etc/shadow -p wa -k identity
+-w /etc/sudoers -p wa -k privilege
+-w /etc/sudoers.d/ -p wa -k privilege
+-w /etc/ssh/sshd_config -p wa -k sshd
+-w /etc/ssh/sshd_config.d/ -p wa -k sshd
+
+# Audit configuration itself. An attacker who disables auditing usually edits these
+# files first, so a change here is worth more than any other single rule.
+-w /etc/audit/ -p wa -k auditconfig
+-w /etc/audit/rules.d/ -p wa -k auditconfig
+
+# Time changes: a log whose timestamps were moved is a log that cannot be correlated.
+-a always,exit -F arch=b64 -S adjtimex,settimeofday,clock_settime -k time_change
+-w /etc/localtime -p wa -k time_change
+
+# Privilege escalation and session records.
+-w /var/log/sudo.log -p wa -k privilege
+-w /var/log/btmp -p wa -k session
+-w /var/log/wtmp -p wa -k session
+-w /var/run/faillock/ -p wa -k session
+
+# Kernel module loading: a rootkit that arrives as a module leaves one record here.
+-a always,exit -F arch=b64 -S init_module,finit_module,delete_module -k modules
+-w /sbin/insmod -p x -k modules
+-w /sbin/modprobe -p x -k modules
+
+# Unsuccessful access attempts, which is where an intrusion usually shows up first.
+-a always,exit -F arch=b64 -S open,openat,open_by_handle_at -F exit=-EACCES -F auid>=1000 -F auid!=unset -k access_denied
+-a always,exit -F arch=b64 -S open,openat,open_by_handle_at -F exit=-EPERM -F auid>=1000 -F auid!=unset -k access_denied
+
+# --- host-specific additions -------------------------------------------------
+{% if 'postgres' in group_names %}
+# Every write to the cluster configuration and to the authentication file. A change to
+# pg_hba.conf is a change to who can reach every tenant's data.
+-w /etc/postgresql/ -p wa -k postgres_config
+-w /var/lib/postgresql/ -p wa -k postgres_data
+{% endif %}
+{% if 'proxmox' in group_names %}
+# The cluster filesystem. A manual change here is drift that Terraform cannot see, and
+# the nightly drift job only notices the VM-level consequence.
+-w /etc/pve/ -p wa -k proxmox_cluster
+-w /etc/zfs/ -p wa -k zfs_config
+{% endif %}
+{% if 'keycloak' in group_names %}
+-w /opt/keycloak/conf/ -p wa -k keycloak_config
+-w /opt/keycloak/data/ -p wa -k keycloak_data
+{% endif %}

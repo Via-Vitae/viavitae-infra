@@ -1,0 +1,12 @@
+---
+- name: Verify WAL-G installation
+  ansible.builtin.command:
+    cmd: /usr/local/bin/wal-g --version
+  register: walg_version_check
+  changed_when: false
+  failed_when: "'wal-g version' not in walg_version_check.stdout"
+
+- name: Reload postgresql
+  ansible.builtin.systemd:
+    name: postgresql
+    state: reloaded

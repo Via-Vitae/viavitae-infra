@@ -1,0 +1,22 @@
+---
+# Placeholder for the api component in the staging environment.
+#
+# The actual workload manifests (Deployment, Service, Ingress) live in the
+# application repository, not here. This repository owns the infrastructure
+# layer; the application repository owns the workload layer. Argo CD deploys
+# from k8s/platform/staging/api/, so when the application repository is
+# wired up, a Kustomization or Helm chart will reference it from this path.
+#
+# Until then, this ConfigMap is the only resource so that Argo CD has something
+# to sync without erroring on an empty directory.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-staging-placeholder
+  labels:
+    app.kubernetes.io/component: api
+    app.kubernetes.io/environment: staging
+    app.kubernetes.io/part-of: viavitae
+data:
+  purpose: "placeholder until the application repository is wired up"

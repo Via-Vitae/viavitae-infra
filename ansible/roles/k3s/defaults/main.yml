@@ -1,0 +1,44 @@
+---
+# Defaults for the k3s role.
+#
+# The version is NOT here. It is read from /etc/viavitae/k3s-version, which Terraform
+# wrote at first boot from `terraform/envs/<env>/terraform.tfvars`. A default in this
+# file would be a second source of truth, and the two would disagree on the first
+# upgrade — silently, because the role would keep working.
+
+k3s_install_dir: /usr/local/bin
+k3s_data_dir: /var/lib/rancher/k3s
+k3s_config_dir: /etc/rancher/k3s
+
+# Where the pinned binary and its published checksums come from. Both are fetched over
+# TLS and the binary is verified against the checksum before it is installed, which is
+# what makes this a pinned download rather than a `curl | sh`.
+k3s_download_base_url: "https://github.com/k3s-io/k3s/releases/download"
+
+# Cluster token, from group_vars/vault.sops.yml. Every node needs the same token to
+# join; it is a shared secret and is rotated by re-running this role with a new value,
+# which rewrites every node's config in one pass.
+k3s_cluster_token: "{{ vault_k3s_cluster_token }}"
+
+k3s_disable:
+  # Kept: traefik (the only ingress controller), servicelb (the NodePorts HAProxy
+  # forwards to), coredns, metrics-server, local-path.
+  # Disabled: the bundled network policy controller, because k8s/policies/network-policies
+  # ships Calico-independent policies that k3s's own controller handles, and disabling
+  # it here would leave the default-deny policies unenforced with no error.
+  []
+
+# Node labels are how Kyverno, the tenant quota policies and the monitoring scrape
+# targets select nodes. A node without them is a node that silently runs nothing.
+k3s_node_labels:
+  viavitae.io/managed-by: ansible
+k3s_node_taints: []
+
+k3s_tls_san: []
+k3s_flannel_backend: vxlan
+k3s_kubelet_max_pods: 110
+
+# Server-side fields. `k3s_control_node` is set by the playbook from
+# /etc/viavitae/k3s-role, not chosen here.
+k3s_server_config: {}
+k3s_agent_config: {}

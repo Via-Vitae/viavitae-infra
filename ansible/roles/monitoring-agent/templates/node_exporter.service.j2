@@ -1,0 +1,19 @@
+# Managed by ansible/roles/monitoring-agent. Edit the role, not this file.
+
+[Unit]
+Description=Prometheus Node Exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart={{ node_exporter_install_dir }}/node_exporter --web.listen-address=:{{ node_exporter_port }}{% if node_exporter_disabled_collectors is defined and node_exporter_disabled_collectors | length > 0 %} --no-collector.{{ node_exporter_disabled_collectors | join(' --no-collector.') }}{% endif %}
+
+Restart=on-failure
+RestartSec=10
+
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

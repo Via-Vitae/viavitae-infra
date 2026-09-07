@@ -1,0 +1,109 @@
+# Example variable values for the `staging` environment.
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# terraform.tfvars is git-ignored; this file is not. Every required variable appears
+# here **except the sensitive ones**, which must never be in a file at all:
+#
+#   PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD, PGSSLMODE
+#                                          from the staging-plan / staging-apply
+#                                          GitHub Environments; the plan Environment
+#                                          holds a read-only role
+#   TF_VAR_dns_update_key_secret           from the staging GitHub Environments
+#
+# The `staging-plan` Environment holds a read-only database role and no SSH key, so a
+# plan cannot write even by accident. The `state-hygiene` job in ci.yml fails if a
+# sensitive variable is ever added to this file.
+#
+# Nothing below is a secret, and no secret may be added.
+
+# --- state -------------------------------------------------------------------
+
+state_bucket   = "viavitae-infra-tfstate"
+state_region   = "eu-central-1"
+state_endpoint = "https://s3.eu-central-1.viavitae-state.example.com"
+
+# --- cluster -----------------------------------------------------------------
+
+node_names  = ["pve-01", "pve-02"]
+k3s_version = "v1.36.4+k3s1"
+
+control_plane_count = 1
+api_vip_address     = ""
+worker_count        = 1
+
+# node => HA priority. Higher starts first, and every staging priority is below the
+# corresponding prod group's, so an N-1 event evicts staging before it evicts a
+# tenant workload.
+ha_group_nodes = {
+  pve-01 = 3
+  pve-02 = 4
+}
+
+# --- storage and template ----------------------------------------------------
+
+datastore_id          = "local-zfs"
+snippets_datastore_id = "local"
+template_vm_id        = 9001
+template_node_name    = "pve-01"
+
+# --- network -----------------------------------------------------------------
+
+vlan_id                     = 30
+subnet_prefix               = "10.10.30.0/24"
+ipv4_gateway                = "10.10.30.1"
+control_plane_address_offset = 30
+worker_address_offset       = 40
+postgres_address            = "10.10.30.10/24"
+keycloak_address            = "10.10.30.20/24"
+dns_domain                  = "viavitae.internal"
+dns_servers                 = ["10.10.10.1", "10.10.10.2"]
+
+ssh_public_keys = [
+  "ssh-ed25519 AAAA-replace-with-a-real-public-key-base64-blob platform@viavitae",
+]
+
+# --- VMIDs, inside the staging block 1100-1199 -------------------------------
+
+vmids = {
+  control_plane_base = 1100
+  worker_base        = 1110
+  postgres_primary   = 1120
+  keycloak           = 1121
+}
+
+# --- database ----------------------------------------------------------------
+
+# The connection itself is configured through libpq environment variables
+# (PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD, PGSSLMODE), so no database
+# credential is a Terraform variable and none can reach a file, a plan input
+# listing or a state export. Only the database *name* is a variable, because the
+# tenant module needs it.
+database_name       = "viavitae"
+migration_role_name = "migrations"
+wal_g_bucket                    = "viavitae-wal-staging"
+
+# --- DNS ---------------------------------------------------------------------
+
+# Staging never uses the production zone: a record created by a rehearsal in the
+# production zone is a production incident.
+dns_update_server        = "10.10.10.1"
+dns_update_key_name      = "viavitae-tf-staging."
+dns_update_key_algorithm = "hmac-sha256"
+dns_zone                 = "staging.viavitae.com."
+dns_target               = "lb.staging.viavitae.com."
+
+# --- tenants -----------------------------------------------------------------
+
+# Empty by default, and staging tenants should be synthetic. A real tenant's data in
+# staging is a second copy of personal data with a weaker access model. Where a real
+# tenant must be rehearsed, use a restored copy on a scratch VM per
+# docs/runbooks/dr-drill.md rather than a standing staging tenant.
+tenants = {
+  syntheticdemo = {
+    display_name = "Synthetic Demo Parish"
+    plan         = "essential"
+  }
+}
+
+dpia_infra_001_signed_off = false

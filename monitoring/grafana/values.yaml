@@ -1,0 +1,59 @@
+# Helm values for Grafana, deployed by Argo CD into the monitoring namespace.
+#
+# Authentication is via Keycloak OIDC (INFRA-001 M7). The admin account is
+# disabled; every login goes through Keycloak, and every Keycloak login is an
+# authentication event in the F4 data flow.
+#
+# Folder permissions are backed by Keycloak groups (INFRA-001 M5): the platform
+# team has Admin on the Platform folder; tenant administrators have Viewer on
+# their per-tenant folder. No dashboard is organisation-wide public.
+
+grafana.ini:
+  server:
+    root_url: "https://grafana.viavitae.com"
+  auth:
+    disable_login_form: true
+  auth.generic_oauth:
+    enabled: true
+    name: Keycloak
+    client_id: grafana
+    client_secret: "$__file{/etc/secrets/keycloak-grafana-client-secret}"
+    scopes: "openid profile email"
+    auth_url: "https://auth.viavitae.com/realms/viavitae/protocol/openid-connect/auth"
+    token_url: "https://auth.viavitae.com/realms/viavitae/protocol/openid-connect/token"
+    api_url: "https://auth.viavitae.com/realms/viavitae/protocol/openid-connect/userinfo"
+    role_attribute_path: "contains(groups[*], 'platform') && 'Admin' || 'Viewer'"
+  security:
+    admin_user: ""
+    admin_password: ""
+    disable_gravatar: true
+
+# Every Loki query in a committed dashboard carries a namespace selector
+# (INFRA-001 M6). Dashboard review is part of the pull-request checklist.
+# Dashboard JSON files live in monitoring/grafana/dashboards/ and are mounted
+# as ConfigMaps by Argo CD.
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+      - name: "platform"
+        orgId: 1
+        folder: "Platform"
+        type: file
+        disableDeletion: true
+        editable: false
+        options:
+          path: /var/lib/grafana/dashboards/platform
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClassName: local-path
+
+resources:
+  requests:
+    cpu: "500m"
+    memory: "512Mi"
+  limits:
+    cpu: "2"
+    memory: "2Gi"

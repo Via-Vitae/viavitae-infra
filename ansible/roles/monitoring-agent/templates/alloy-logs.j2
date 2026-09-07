@@ -1,0 +1,82 @@
+// Managed by ansible/roles/monitoring-agent. Edit the role, not this file.
+//
+// Grafana Alloy configuration for log collection with redaction. The pipeline is
+// applied before anything leaves the host (INFRA-001 control M3). The rules are
+// owned jointly by the DPO and Platform.
+
+// Discover journal logs and log files.
+local.journal = journal.journal {
+  max_age = "1h"
+}
+
+local.files = local.file_match "logs" {
+  path_targets = [
+    ["/var/log/syslog"],
+    ["/var/log/auth.log"],
+    ["/var/log/kern.log"],
+    ["/var/log/postgresql/*.log"],
+  ]
+}
+
+// Redaction pipeline. Email addresses, IP addresses, bearer tokens, query strings,
+// and any field named `password`, `secret` or `token` are replaced before storage.
+// Loki stores what it receives: a query-time filter would leave the personal data
+// on disk, in the index, and in every backup of the object store.
+{% if alloy_log_redaction_enabled %}
+local.redact = loki.process "redact" {
+  stage.regex {
+    expression = `(?P<email>[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})`
+    source     = ""
+  }
+  stage.replace {
+    expression = `(?P<email>[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})`
+    replace    = "<email redacted>"
+  }
+
+  stage.regex {
+    expression = `(?P<ip>\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b)`
+    source     = ""
+  }
+  stage.replace {
+    expression = `(?P<ip>\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b)`
+    replace    = "<ip redacted>"
+  }
+
+  stage.replace {
+    expression = `(?i)(password|secret|token|api_?key)\s*[:=]\s*\S+`
+    replace    = "$1=<redacted>"
+  }
+}
+{% endif %}
+
+// Write to Loki. Multiple endpoints for resilience; a single endpoint would mean a
+// single node reboot silently stops log ingestion.
+loki.write "loki" {
+  endpoint {
+    url = "http://{{ host_log_endpoints[0] }}/loki/api/v1/push"
+  }
+{% for endpoint in host_log_endpoints[1:] %}
+  endpoint {
+    url = "http://{{ endpoint }}/loki/api/v1/push"
+  }
+{% endfor %}
+}
+
+// Wire it together.
+journal.journal {
+  forward_to = [
+    {% if alloy_log_redaction_enabled %}loki.process.redact.receiver,{% endif %}
+  ]
+}
+
+local.file_match.logs {
+  forward_to = [
+    {% if alloy_log_redaction_enabled %}loki.process.redact.receiver,{% endif %}
+  ]
+}
+
+{% if alloy_log_redaction_enabled %}
+loki.process.redact {
+  forward_to = [loki.write.loki.receiver]
+}
+{% endif %}

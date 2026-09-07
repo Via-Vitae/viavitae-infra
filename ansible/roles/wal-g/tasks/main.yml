@@ -1,0 +1,79 @@
+---
+# Install and configure WAL-G for continuous archiving and point-in-time recovery.
+# The role is idempotent and safe to re-run; it installs the binary on first run and
+# verifies the checksum on subsequent runs.
+
+- name: Assert the platform is the one this role was written for
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == "Debian"
+      - ansible_distribution_major_version == "12"
+    fail_msg: >-
+      {{ inventory_hostname }} runs {{ ansible_distribution }}
+      {{ ansible_distribution_major_version }}. WAL-G binaries in this role are
+      built for Ubuntu 20.04 and work on Debian 12; a different distribution may
+      need a different binary.
+
+- name: Read the instance purpose Terraform declared
+  ansible.builtin.slurp:
+    src: /etc/viavitae/pg-purpose
+  register: pg_purpose_slurp
+  failed_when: false
+
+- name: Fail on a host Terraform did not describe
+  ansible.builtin.assert:
+    that:
+      - pg_purpose_slurp.content is defined
+    fail_msg: >-
+      {{ inventory_hostname }} has no /etc/viavitae/pg-purpose, so it was not
+      created by terraform/modules/postgres-vm. This role refuses to configure
+      WAL-G on a host whose purpose is unknown.
+
+- name: Set the instance purpose fact
+  ansible.builtin.set_fact:
+    pg_purpose: "{{ pg_purpose_slurp.content | b64decode | trim }}"
+
+- name: Skip WAL-G on the standby
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }} is a standby (pg_role = {{ pg_role | default('primary') }}).
+      WAL-G archiving is only enabled on the primary; the standby receives WAL via
+      streaming replication. Skipping.
+  when: pg_role | default('primary') == 'standby'
+
+- name: End the play on the standby
+  ansible.builtin.meta: end_host
+  when: pg_role | default('primary') == 'standby'
+
+- name: Create the WAL-G configuration directory
+  ansible.builtin.file:
+    path: "{{ walg_config_dir }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0750"
+
+- name: Install the WAL-G binary
+  ansible.builtin.unarchive:
+    src: "{{ walg_install_url }}"
+    dest: "{{ walg_install_dir }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Verify WAL-G installation
+
+- name: Configure WAL-G
+  ansible.builtin.template:
+    src: wal-g.yaml.j2
+    dest: "{{ walg_config_file }}"
+    owner: postgres
+    group: postgres
+    mode: "0640"
+
+- name: Report the WAL-G state
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }}: WAL-G {{ walg_version }} installed, archiving to
+      {{ postgres_walg_bucket | default('s3://viavitae-wal-' + environment_name) }},
+      retention = {{ walg_retention_count }} backups / {{ walg_retention_days }} days.

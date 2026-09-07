@@ -1,0 +1,22 @@
+---
+- name: Restart systemd-timesyncd
+  ansible.builtin.systemd_service:
+    name: systemd-timesyncd
+    state: restarted
+    daemon_reload: false
+
+- name: Restart systemd-journald
+  ansible.builtin.systemd_service:
+    name: systemd-journald
+    state: restarted
+
+- name: Note that the ARC cap needs a reboot
+  # A module parameter cannot be changed on a loaded module, and unloading ZFS on a
+  # running hypervisor is not possible while guests have zvols open. Recording it as a
+  # warning rather than rebooting is deliberate: an unattended reboot of a Proxmox host
+  # is an outage, and the ARC cap is a tuning change, not an incident.
+  ansible.builtin.debug:
+    msg: >-
+      The ZFS ARC cap on {{ inventory_hostname }} takes effect at the next reboot.
+      Until then the pool may exceed its memory budget. Schedule the reboot inside the
+      maintenance window (playbooks/update.yml) and note it in the pull request.

@@ -1,0 +1,12 @@
+# Managed by ansible/roles/common. Edit the role, not this file.
+[Journal]
+SystemMaxUse={{ common_journald_system_max_use }}
+SystemKeepFree=1G
+MaxRetentionSec={{ common_journald_max_retention_sec }}
+# Compress, because the alternative is a cap that holds a third of the log entries.
+Compress=yes
+Seal=yes
+# Forwarding to the cluster log pipeline is done by the node agent, not by journald:
+# journald forwarding is fire-and-forget, drops under load, and produces a gap that
+# looks like a quiet system rather than a broken pipeline.
+ForwardToSyslog=no

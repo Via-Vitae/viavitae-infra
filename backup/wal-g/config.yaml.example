@@ -1,0 +1,37 @@
+# WAL-G configuration example for the PostgreSQL backup pipeline.
+#
+# This is an example, not a live configuration. The live configuration is
+# deployed by the ansible/roles/wal-g role and contains credentials that are
+# SOPS-encrypted. This file documents the settings and the reason for each.
+#
+# INFRA-001 M1: encryption at rest. WAL-G archives are encrypted with age
+# before they leave the PostgreSQL host. The age public key is in the
+# configuration; the private key is held offline by two custodians.
+
+WALG_S3_PREFIX: "s3://viavitae-backup/walg"
+WALG_S3_REGION: "eu-central-1"
+WALG_S3_ENDPOINT: "https://s3.eu-central-1.viavitae.example"
+
+# Encryption. The age public key encrypts archives before upload. The private
+# key is NOT on the database host; it is held offline.
+WALG_PGP_KEY: ""  # Replaced by age key in production; see ansible/roles/wal-g
+WALG_COMPRESSION_METHOD: "lz4"
+
+# Archive settings. archive_timeout = 300 in postgresql.conf ensures a WAL
+# segment is pushed at least every 5 minutes, even on quiet databases. This
+# is the RPO ceiling (capacity-plan.md).
+WALG_UPLOAD_WAL_METADATA: "NOMETADATA"
+
+# Retention. 35 days of WAL archives. After 35 days, the archive is deleted
+# from S3. This is the residual-copy window for Art. 17 erasure (see
+# docs/runbooks/backup-restore.md §Erasure).
+WALG_RETENTION_COUNT: "35"
+
+# Delta backups. Full backup weekly, delta backups daily. Reduces the S3
+# storage cost and the restore time (a delta chain of 7 is faster than 35
+# individual WAL replays from a base backup).
+WALG_DELTA_MAX_STEPS: "7"
+
+# Verification. After upload, WAL-G verifies the archive can be read back.
+# A backup that cannot be read is not a backup.
+WALG_VERIFY_PAGE_CHECKSUMS: "true"

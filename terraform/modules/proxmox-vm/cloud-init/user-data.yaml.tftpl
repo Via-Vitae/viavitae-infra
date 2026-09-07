@@ -1,0 +1,82 @@
+#cloud-config
+#
+# Rendered by terraform/modules/proxmox-vm via templatefile().
+# Do not edit a rendered copy on a node: the next apply overwrites it, and a guest
+# only reads this once, on first boot.
+#
+# Scope is deliberately narrow: identity, hostname, time and the package baseline
+# that Ansible needs in order to reach the machine. Everything else is Ansible's.
+# A cloud-init script that installs services makes first boot non-reproducible and
+# gives two automation systems an opinion about the same file.
+
+hostname: ${hostname}
+fqdn: ${hostname}.${dns_domain}
+manage_etc_hosts: true
+
+ssh_pwauth: false
+disable_root: true
+
+users:
+  - name: ${ssh_username}
+    gecos: ViaVitae platform automation
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: true
+    groups: [sudo, adm, systemd-journal]
+    ssh_authorized_keys:
+%{ for key in ssh_public_keys ~}
+      - ${key}
+%{ endfor ~}
+
+# No password is ever set here. A cloud-init password lands in Terraform state, in
+# the plan file, and in the Proxmox VM configuration, in plaintext. Key-only
+# authentication is the only supported path; see the module README.
+
+timezone: Europe/Vilnius
+
+# Ansible connects over SSH within seconds of first boot. Without the daemon
+# running and reachable, provisioning fails in a way that looks like a network
+# fault rather than a boot-ordering one.
+runcmd:
+  - [systemctl, enable, --now, ssh]
+  - [systemctl, enable, --now, systemd-timesyncd]
+  # Fail closed on name resolution rather than silently accepting a resolver that
+  # is down: `resolvconf` rewrites from network-config.yaml on every boot.
+  - [sh, -c, 'test -s /etc/resolv.conf || echo "nameserver ${dns_servers[0]}" > /etc/resolv.conf']
+  # Record what built this machine. The alternative is guessing from the guest's
+  # behaviour, six months later, during an incident.
+  - [sh, -c, 'printf "managed-by: ${managed_by}\nrendered-for: ${hostname}\npool: ${environment}\n" > /etc/viavitae-provisioning']
+  - [chmod, "0444", /etc/viavitae-provisioning]
+
+write_files:
+  - path: /etc/sysctl.d/99-viavitae-hardening-placeholder.conf
+    permissions: "0644"
+    owner: root:root
+    content: |
+      # Placeholder only. The real kernel hardening parameters are applied by
+      # ansible/roles/hardening and are versioned there. Putting them in
+      # cloud-init would create a second source of truth for sysctl, and the two
+      # would disagree on the first reboot after a role change.
+      #
+      # This file exists so that a guest with no Ansible run against it is
+      # visibly unhardened rather than silently unhardened.
+%{ if length(extra_files) > 0 ~}
+
+  # The entries below are declared in Terraform and consumed by Ansible. This is
+  # the mechanism that lets a fact have exactly one declaration site and exactly
+  # one installer: Terraform writes the value, the Ansible role reads
+  # /etc/viavitae/ and acts on it. The role fails when the file is absent rather
+  # than falling back to a default, because a silent default is a second source of
+  # truth.
+%{ endif ~}
+%{ for path, content in extra_files ~}
+  - path: ${path}
+    permissions: "0444"
+    owner: root:root
+    content: |
+%{ for line in split("\n", chomp(content)) ~}
+      ${line}
+%{ endfor ~}
+%{ endfor ~}
+
+final_message: "cloud-init finished for ${hostname} after $UPTIME seconds"

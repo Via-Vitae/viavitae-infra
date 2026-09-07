@@ -1,0 +1,44 @@
+# Rendered by terraform/modules/proxmox-vm via templatefile().
+#
+# netplan schema version 2, which is what Debian 12's cloud-init consumes and
+# hands to NetworkManager or systemd-networkd depending on the image.
+# The addresses, gateway and resolvers come from the allocation table in
+# docs/network-topology.md; there is no DHCP anywhere in this estate, because a
+# server whose address changes breaks firewall rules, TLS SANs, backup targets and
+# monitoring discovery simultaneously and in ways that look like four unrelated
+# faults.
+
+version: 2
+ethernets:
+%{ for net in networks ~}
+  ${net.interface}:
+    # Static addressing. `dhcp4: false` is explicit rather than omitted: an
+    # omitted key falls back to the image's default, and the Debian cloud image's
+    # default is DHCP.
+    dhcp4: false
+    dhcp6: false
+    addresses:
+      - ${net.ipv4_address}
+%{ if net.ipv4_gateway != "" ~}
+    # Exactly one interface carries a default route. A second one makes the
+    # routing table order-dependent, and the symptom is intermittent packet loss
+    # rather than an obvious error.
+    routes:
+      - to: default
+        via: ${net.ipv4_gateway}
+%{ endif ~}
+    nameservers:
+      search:
+        - ${dns_domain}
+      addresses:
+%{ for server in dns_servers ~}
+        - ${server}
+%{ endfor ~}
+    mtu: ${net.mtu}
+    # No VLAN sub-interface here. The tag is applied by Proxmox on the vNIC
+    # (network_device.vlan_id), so the guest sees an untagged interface on a
+    # tagged bridge. Tagging in both places produces a double-tagged frame that
+    # the switch drops, and the symptom is a VM with no connectivity and no error.
+    optional: false
+    accept-ra: false
+%{ endfor ~}

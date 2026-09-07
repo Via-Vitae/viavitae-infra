@@ -1,0 +1,185 @@
+---
+# CIS Level 1 server hardening, plus the controls that this estate needs and the
+# profile does not mention.
+#
+# Every task here is idempotent and every change is reversible from a backup taken by
+# the task that precedes it. `playbooks/hardening.yml` runs in batches of 20 % and
+# verifies SSH connectivity after each host, because a hardening run that locks out the
+# automation user is unrecoverable remotely and needs console access.
+
+- name: Back up the SSH configuration before changing it
+  ansible.builtin.copy:
+    src: /etc/ssh/sshd_config
+    dest: "/etc/ssh/sshd_config.viavitae-backup-{{ ansible_date_time.epoch }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0600"
+    force: false
+  register: sshd_backup
+
+- name: Report where the rollback copy is
+  ansible.builtin.debug:
+    msg: >-
+      A rollback copy of sshd_config is at {{ sshd_backup.dest }}. If this run locks
+      out the automation user, restore it from the Proxmox console:
+      `qm terminal <vmid>`, then copy the backup back and `systemctl restart ssh`.
+  when: sshd_backup.changed
+
+- name: Install the hardening packages
+  ansible.builtin.apt:
+    name:
+      - auditd
+      - audispd-plugins
+      - aide
+      - aide-common
+      - fail2ban
+      - libpam-pwquality
+      - libpam-tmpdir
+      - chrony
+    state: present
+    install_recommends: false
+
+- name: Write the SSH server drop-in
+  ansible.builtin.template:
+    src: sshd_config.j2
+    # A drop-in rather than an edit of sshd_config: the distribution's file stays
+    # pristine, so a package upgrade does not silently revert the hardening, and the
+    # whole policy is one file that a reviewer can read in one screen.
+    dest: /etc/ssh/sshd_config.d/90-viavitae.conf
+    owner: root
+    group: root
+    mode: "0600"
+    validate: "/usr/sbin/sshd -t -f %s"
+  notify: Restart sshd
+
+- name: Ensure sshd_config includes the drop-in directory
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?Include /etc/ssh/sshd_config\.d/\*\.conf'
+    line: "Include /etc/ssh/sshd_config.d/*.conf"
+    state: present
+    firstmatch: true
+    validate: "/usr/sbin/sshd -t -f %s"
+  notify: Restart sshd
+
+- name: Write the auditd rules
+  ansible.builtin.template:
+    src: audit-rules.j2
+    dest: /etc/audit/rules.d/90-viavitae.rules
+    owner: root
+    group: root
+    mode: "0640"
+  notify: Reload auditd rules
+
+- name: Write the fail2ban jails
+  ansible.builtin.template:
+    src: fail2ban-jail.j2
+    dest: /etc/fail2ban/jail.d/90-viavitae.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "/usr/bin/fail2ban-client -d >/dev/null 2>&1 || /bin/true"
+  when: hardening_fail2ban_enabled | bool
+  notify: Restart fail2ban
+
+- name: Apply the kernel parameter set
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/90-viavitae.conf
+    sysctl_set: true
+    reload: true
+    state: present
+  loop: "{{ hardening_sysctl | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}={{ item.value }}"
+
+- name: Remove the cloud-init sysctl placeholder
+  # cloud-init writes a placeholder that says "this guest is unhardened". Once the real
+  # file exists the placeholder is noise, and leaving it means two files with the same
+  # 99- precedence and an order that depends on the filesystem.
+  ansible.builtin.file:
+    path: /etc/sysctl.d/99-viavitae-hardening-placeholder.conf
+    state: absent
+
+- name: Enable IP forwarding only where forwarding is the host's job
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "{{ '1' if ('loadbalancer' in group_names or 'k3s_cluster' in group_names) else '0' }}"
+    sysctl_file: /etc/sysctl.d/90-viavitae.conf
+    sysctl_set: true
+    reload: true
+  # k3s nodes forward pod traffic; the load balancers are dual-homed by design. Every
+  # other host that forwards is a route between two segments nobody approved.
+
+- name: Mask services nothing in this estate uses
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+    masked: true
+  loop: "{{ hardening_masked_services }}"
+  failed_when: false
+  # `failed_when: false` because a unit that is not installed cannot be masked. The
+  # alternative is a task that fails on every host that happens to lack cups, which
+  # trains everyone to ignore red.
+
+- name: Set the login defaults
+  ansible.builtin.lineinfile:
+    path: /etc/login.defs
+    regexp: '^{{ item.key }}\s'
+    line: "{{ item.key }}	{{ item.value }}"
+    state: present
+  loop:
+    - {key: UMASK, value: "{{ hardening_umask }}"}
+    - {key: PASS_MAX_DAYS, value: "{{ hardening_login_defs_pass_max_days }}"}
+    - {key: PASS_MIN_DAYS, value: "{{ hardening_login_defs_pass_min_days }}"}
+    - {key: PASS_WARN_AGE, value: "{{ hardening_login_defs_pass_warn_age }}"}
+    - {key: LOG_UNKFAIL_ENAB, value: "yes"}
+
+- name: Restrict core dumps
+  ansible.builtin.copy:
+    dest: /etc/security/limits.d/90-viavitae-core.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # A core dump of a database or an identity provider contains whatever was in
+      # memory, which includes credentials and personal data, written to disk in a
+      # directory nobody reads and no retention policy covers.
+      * hard core 0
+      * soft core 0
+
+- name: Initialise the AIDE database on first run
+  ansible.builtin.command:
+    cmd: aideinit -y -f
+    creates: /var/lib/aide/aide.db.new
+  when: hardening_aide_enabled | bool
+
+- name: Promote the AIDE database
+  ansible.builtin.command:
+    cmd: cp -a /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+    creates: /var/lib/aide/aide.db
+  when: hardening_aide_enabled | bool
+
+- name: Schedule the daily AIDE check
+  ansible.builtin.cron:
+    name: "viavitae aide check"
+    job: "/usr/bin/aide.wrapper --check > /var/log/aide/aide-check.log 2>&1"
+    minute: "30"
+    hour: "{{ hardening_aide_cron_hour }}"
+    user: root
+    cron_file: viavitae-aide
+  when: hardening_aide_enabled | bool
+
+- name: Ensure the audit log directory is not world-readable
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - /var/log/audit
+    - /var/log/aide

@@ -1,0 +1,50 @@
+# Helm values for Loki, deployed by Argo CD into the monitoring namespace.
+#
+# Retention is 30 days (INFRA-001 F1, M4). A query for older data returns
+# nothing; this is by design, not a defect. The personal data in the logs has
+# a 30-day retention cap, and Loki's retention is the mechanical enforcement.
+#
+# Log volume assumption: 400 MB/tenant/day raw, 90 MB after redaction and drop
+# rules (capacity-plan.md §Growth assumptions). The redaction is applied in the
+# agent on every host (ansible/roles/monitoring-agent/templates/alloy-logs.j2),
+# not at query time. Loki stores what it receives.
+
+loki:
+  auth_enabled: false
+
+  limits_config:
+    retention_period: 30d
+    # Per-tenant ingest rate. A tenant that exceeds 10 MB/s is either under
+    # attack or has a logging loop; either way, rate-limiting protects the
+    # shared stack.
+    ingestion_rate_mb: 10
+    ingestion_burst_size_mb: 20
+
+  storage_config:
+    # Object storage for chunks. MinIO on mon-01 (10.10.20.10) in prod; the
+    # bucket is on ZFS native encryption (INFRA-001 M1).
+    aws:
+      s3: "s3://minio-admin:minio-password@minio:9000/loki-chunks"
+      s3forcepathstyle: true
+
+  compactor:
+    retention_enabled: true
+    retention_delete_delay: 2h
+    working_directory: /data/compactor
+
+  # Single-scalable deployment. Sufficient for the current tenant count; the
+  # capacity plan triggers on Loki disk usage at 70 % and 85 %.
+  deploymentMode: SingleBinary
+
+singleBinary:
+  replicas: 1
+  resources:
+    requests:
+      cpu: "1"
+      memory: "4Gi"
+    limits:
+      cpu: "4"
+      memory: "8Gi"
+  persistence:
+    size: 100Gi
+    storageClass: local-path

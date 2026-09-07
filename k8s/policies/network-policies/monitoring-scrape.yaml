@@ -1,0 +1,22 @@
+---
+# Permit ingress from the `monitoring` namespace to metrics ports. Scoped to the
+# port, not to the pod, so a scrape cannot become a general ingress path.
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: monitoring-scrape
+spec:
+  podSelector: {}
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9100  # node_exporter
+        - protocol: TCP
+          port: 8080  # application metrics
+  policyTypes:
+    - Ingress

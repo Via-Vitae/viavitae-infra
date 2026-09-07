@@ -1,0 +1,115 @@
+# EditorConfig — https://editorconfig.org
+# Deterministic formatting across every editor and every repository generated
+# from viavitae-template. This file is checked for presence by
+# .github/workflows/compliance-check.yml.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+max_line_length = 100
+
+# --- Python: 4 spaces, per PEP 8 ---------------------------------------------
+[*.py]
+indent_size = 4
+
+[*.pyi]
+indent_size = 4
+
+# --- Makefile: tabs are syntactically required -------------------------------
+[Makefile]
+indent_style = tab
+
+[*.mk]
+indent_style = tab
+
+[makefile]
+indent_style = tab
+
+# --- Markdown: line length is not enforced, two-space hard breaks preserved ---
+[*.md]
+max_line_length = off
+trim_trailing_whitespace = false
+
+[*.markdown]
+max_line_length = off
+trim_trailing_whitespace = false
+
+# --- Data and config formats: 2 spaces, never tabs ---------------------------
+[*.{json,jsonc,json5}]
+indent_size = 2
+
+[*.{yml,yaml}]
+indent_size = 2
+
+[*.{toml,ini,cfg,conf}]
+indent_size = 2
+
+# --- Web and frontend: 2 spaces ----------------------------------------------
+[*.{ts,tsx,js,jsx,mjs,cjs,vue,svelte}]
+indent_size = 2
+
+[*.{css,scss,sass,less,html,htm,svg}]
+indent_size = 2
+
+# --- Infrastructure as code: 2 spaces ----------------------------------------
+[*.tf]
+indent_size = 2
+
+[*.tfvars]
+indent_size = 2
+
+[*.{hcl,nomad}]
+indent_size = 2
+
+[*.{yml,yaml}.{k8s,kubernetes}]
+indent_size = 2
+
+# --- Shell: 2 spaces, LF mandatory -------------------------------------------
+[*.sh]
+indent_size = 2
+end_of_line = lf
+
+# --- Templates rendered by Terraform, Ansible or cloud-init -------------------
+# Jinja and heredoc templates are whitespace-sensitive: a trailing-space trim or a
+# re-indent changes the rendered file, so the line length limit is off and trailing
+# whitespace is preserved exactly as written.
+[*.{j2,jinja,jinja2,tftpl,tmpl,tpl}]
+max_line_length = off
+trim_trailing_whitespace = false
+insert_final_newline = unset
+
+# --- Encrypted material: never reformatted, never re-wrapped -------------------
+[*.sops.{yml,yaml,json}]
+max_line_length = off
+insert_final_newline = unset
+
+[.sops.yaml]
+indent_size = 2
+max_line_length = off
+
+# --- Files with fixed or generated formatting --------------------------------
+[*.lock]
+insert_final_newline = unset
+trim_trailing_whitespace = unset
+
+[{package-lock.json,yarn.lock,pnpm-lock.yaml,poetry.lock,uv.lock}]
+indent_size = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset
+
+[{LICENSE,LICENCE,NOTICE}]
+max_line_length = 80
+
+[{.gitignore,.gitattributes,.editorconfig,.dockerignore,.npmignore}]
+indent_size = unset
+max_line_length = off
+
+[CODEOWNERS]
+max_line_length = off
+trim_trailing_whitespace = true

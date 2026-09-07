@@ -1,0 +1,130 @@
+name: CodeQL
+
+# CodeQL static application security testing for Python and TypeScript/JavaScript,
+# the two languages present across ViaVitae repositories.
+#
+# Query suite: security-and-quality — the security queries plus the maintainability
+# and reliability queries. It is configured inline here rather than through a
+# `config-file:` reference, so this workflow depends on no file outside this
+# repository and cannot break through a missing sibling configuration.
+#
+# BASELINE ALERT POLICY
+#   Which alerts block a pull request is configured in the repository, not here:
+#   Settings -> Code security and analysis -> Code scanning -> "Check failure
+#   severities and levels". The organisation baseline is:
+#     alerts:   error   at security severity critical and high
+#     alerts:   failure at security severity critical and high
+#     quality:  error   at maintainability and reliability severity error
+#   Alerts already present on the default branch form the baseline; a pull request
+#   is blocked by alerts it introduces, not by inherited ones. Review the baseline
+#   quarterly and record reductions as an ADR, because a growing baseline is debt
+#   that has stopped being visible.
+#
+# LEAST-PRIVILEGE TOKEN
+#   Workflow default is `contents: read`. Only the `analyze` job escalates, to
+#   `security-events: write` for SARIF upload and `actions: read` because CodeQL
+#   inspects the workflow run. No other scope is granted.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    # Weekly deep scan — Mondays 06:00 Europe/Vilnius, expressed in UTC.
+    # Cron is always UTC, so the local time shifts by one hour across the DST
+    # boundary. This is expected.
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "codeql-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}"
+  cancel-in-progress: false
+
+env:
+  # Language matrix. Add a language here and the rest of the pipeline follows.
+  # Supported: python, javascript-typescript, go, java-kotlin, csharp, ruby,
+  # swift, cpp, actions.
+  CODEQL_LANGUAGES: "python,javascript-typescript"
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    permissions:
+      # Required to upload SARIF results to the code-scanning dashboard.
+      security-events: write
+      # Required by the CodeQL action to inspect the workflow run metadata.
+      actions: read
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ["python", "javascript-typescript"]
+        # build-mode:
+        #   none   — no compilation step; correct for Python and JS/TS.
+        #   manual — run your own build commands between init and analyze.
+        #   auto   — let CodeQL attempt a build (compiled languages only).
+        build-mode: ["none"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@5ba2889ada762081db2c4f32a729827dce632c7b
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-and-quality
+          # Embed the offending source snippet in each result so a reviewer can
+          # triage from the dashboard without checking out the branch.
+          sarif-add-snippets: true
+          # Do not download external datasets during analysis. Keeps the run
+          # deterministic and avoids an outbound data flow, per QODER rule 4.
+          external-data: false
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@5ba2889ada762081db2c4f32a729827dce632c7b
+        with:
+          category: "/language:${{ matrix.language }}/build-mode:${{ matrix.build-mode }}"
+          # Always upload. Blocking behaviour is governed by the repository's
+          # check-failure severity settings, documented in this file's header,
+          # not by suppressing the upload.
+          upload: always
+          output: sarif-results
+
+      - name: Report finding counts
+        if: always()
+        run: |
+          set -uo pipefail
+          dir="sarif-results/${{ matrix.language }}"
+          if [ ! -d "$dir" ]; then
+            echo "No SARIF output produced for ${{ matrix.language }}."
+            exit 0
+          fi
+          for f in "$dir"/*.sarif; do
+            [ -e "$f" ] || continue
+            echo "SARIF: $f"
+            jq -r '
+              .runs[]? | .results[]?
+              | "  \(.ruleId // "?") [\(.level // "?")] \(.message.text | .[0:120])"
+            ' "$f" 2>/dev/null | head -50
+            count=$(jq '[.runs[]?.results[]?] | length' "$f" 2>/dev/null || echo "?")
+            echo "  total results in $(basename "$f"): ${count}"
+          done
+
+      - name: Upload SARIF as an artefact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: codeql-sarif-${{ matrix.language }}
+          path: sarif-results/
+          if-no-files-found: ignore
+          retention-days: 30

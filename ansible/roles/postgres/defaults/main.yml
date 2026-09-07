@@ -1,0 +1,45 @@
+---
+# Defaults for the PostgreSQL role. Anything here can be overridden per group or per
+# host; anything that must not be overridden belongs in a task assertion instead.
+
+postgres_version: "16"
+postgres_port: 5432
+postgres_data_dir: "/var/lib/postgresql/{{ postgres_version }}/main"
+postgres_config_dir: "/etc/postgresql/{{ postgres_version }}/main"
+
+# The provisioner role is what Terraform connects as to create schemas and roles. It
+# is created by this role on first run; the password comes from vault.sops.yml.
+# Never by Terraform (ADR-003 decision 3).
+postgres_provisioner_username: viavitae_provisioner
+postgres_provisioner_password: "{{ pg_provisioner_password }}"
+
+# Replication role for streaming replication to the standby. Password from vault.
+postgres_replication_username: viavitae_replication
+postgres_replication_password: "{{ pg_replication_password }}"
+
+# WAL-G archiving. Enabled on the primary, disabled on the standby (it receives WAL
+# via streaming replication, not via archiving).
+postgres_walg_enabled: true
+postgres_walg_bucket: "s3://viavitae-wal-{{ environment_name }}"
+postgres_walg_region: "eu-central-1"
+# WAL-G credentials come from vault.sops.yml. The bucket name is not secret; the
+# access key is.
+
+# Connection limits. A tenant that exhausts the connection pool is a tenant whose
+# application has a leak; the limit is what makes the leak visible rather than silent.
+postgres_max_connections: 200
+postgres_superuser_connection_limit: 3
+
+# Logging. Every statement is logged at `log_statement = ddl` so that schema changes
+# are in the audit trail; `all` would fill the disk with SELECT noise.
+postgres_log_statement: ddl
+postgres_log_min_duration_statement: 1000  # ms; slow queries are logged
+postgres_log_line_prefix: "%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h "
+
+# Performance. Shared buffers at 25% of RAM is the standard starting point; effective
+# cache size at 75% tells the planner how much is cached. These are defaults; a host
+# with 64 GB RAM will need tuning beyond what a role can guess.
+postgres_shared_buffers_mb: 4096
+postgres_effective_cache_size_mb: 12288
+postgres_work_mem_mb: 64
+postgres_maintenance_work_mem_mb: 512

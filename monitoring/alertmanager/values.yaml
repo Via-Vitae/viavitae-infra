@@ -1,0 +1,57 @@
+# Helm values for Alertmanager, deployed by Argo CD into the monitoring namespace.
+#
+# Two routes: the default route goes to the on-call engineer with a 15-minute
+# escalation; the security route goes to the security team with a 15-minute
+# escalation regardless of severity (INFRA-001 M12).
+#
+# A page that means something is a page that fires on a real problem within the
+# SLO window. A page that fires on a symptom the customer already reported is a
+# page that failed. Multi-window, multi-burn-rate alerting (slo-burn-rate.yml)
+# is the mechanism.
+
+alertmanager:
+  config:
+    global:
+      resolve_timeout: 5m
+
+    route:
+      group_by: ["alertname", "namespace"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      receiver: "platform-oncall"
+      routes:
+        # Security alerts: separate route, faster escalation, different receiver.
+        - match:
+            severity: security
+          receiver: "security-oncall"
+          group_wait: 10s
+          repeat_interval: 15m
+          continue: false
+
+        # Backup alerts: first failure pages immediately, not after 4 hours.
+        - match:
+            alertname: BackupFailed
+          receiver: "platform-oncall"
+          group_wait: 0s
+          repeat_interval: 1h
+
+    receivers:
+      - name: "platform-oncall"
+        # The webhook URL is a SOPS-encrypted secret. The plaintext is not in Git.
+        webhook_configs:
+          - url: "http://alertmanager-relay.monitoring.svc:9095/platform"
+
+      - name: "security-oncall"
+        webhook_configs:
+          - url: "http://alertmanager-relay.monitoring.svc:9095/security"
+
+    # Inhibition: a critical alert inhibits a warning for the same alertname and
+    # namespace. Without this, a single failure produces a page and a ticket for
+    # the same problem.
+    inhibit_rules:
+      - source_match:
+          severity: "critical"
+        target_match:
+          severity: "warning"
+        equal: ["alertname", "namespace"]

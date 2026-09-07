@@ -1,0 +1,14 @@
+; Managed by ansible/roles/bitrix24. Edit the role, not this file.
+;
+; PHP configuration for Bitrix24. The settings are from the vendor's documentation.
+
+memory_limit = {{ bitrix24_php_memory_limit }}
+max_execution_time = {{ bitrix24_php_max_execution_time }}
+upload_max_filesize = {{ bitrix24_php_upload_max_filesize }}
+post_max_size = {{ bitrix24_php_post_max_size }}
+
+display_errors = Off
+log_errors = On
+error_log = /var/log/bitrix24/php-errors.log
+
+date.timezone = Europe/Vilnius

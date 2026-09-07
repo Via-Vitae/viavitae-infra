@@ -1,0 +1,40 @@
+---
+- name: Verify node_exporter installation
+  ansible.builtin.command:
+    cmd: /usr/local/bin/node_exporter --version
+  register: node_exporter_version_check
+  changed_when: false
+  failed_when: "'version' not in node_exporter_version_check.stdout"
+
+- name: Verify Alloy installation
+  ansible.builtin.command:
+    cmd: /usr/local/bin/alloy --version
+  register: alloy_version_check
+  changed_when: false
+  failed_when: "'version' not in alloy_version_check.stdout"
+
+- name: Verify Prometheus agent installation
+  ansible.builtin.command:
+    cmd: /usr/local/bin/prometheus --version
+  register: prometheus_version_check
+  changed_when: false
+  failed_when: "'version' not in prometheus_version_check.stdout"
+
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart node_exporter
+  ansible.builtin.systemd:
+    name: node_exporter
+    state: restarted
+
+- name: Restart alloy
+  ansible.builtin.systemd:
+    name: alloy
+    state: restarted
+
+- name: Restart prometheus-agent
+  ansible.builtin.systemd:
+    name: prometheus-agent
+    state: restarted

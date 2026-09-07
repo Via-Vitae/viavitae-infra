@@ -1,0 +1,124 @@
+---
+# Install and configure PostgreSQL. The role is idempotent and safe to re-run; it
+# creates the provisioner and replication roles on first run, and on subsequent runs
+# it verifies they exist and have the expected passwords.
+
+- name: Assert the platform is the one this role was written for
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == "Debian"
+      - ansible_distribution_major_version == "12"
+    fail_msg: >-
+      {{ inventory_hostname }} runs {{ ansible_distribution }}
+      {{ ansible_distribution_major_version }}. PostgreSQL package names and the
+      pgdg repository in this role are Debian 12 specifics. Port the role
+      deliberately rather than discovering the differences on a production host.
+
+- name: Read the instance purpose Terraform declared
+  ansible.builtin.slurp:
+    src: /etc/viavitae/pg-purpose
+  register: pg_purpose_slurp
+  failed_when: false
+
+- name: Fail on a host Terraform did not describe
+  ansible.builtin.assert:
+    that:
+      - pg_purpose_slurp.content is defined
+    fail_msg: >-
+      {{ inventory_hostname }} has no /etc/viavitae/pg-purpose, so it was not
+      created by terraform/modules/postgres-vm. This role refuses to configure a
+      PostgreSQL instance whose purpose (tenants? bitrix24? something else) is
+      unknown, because the schema ownership and the backup schedule depend on it.
+
+- name: Set the instance purpose fact
+  ansible.builtin.set_fact:
+    pg_purpose: "{{ pg_purpose_slurp.content | b64decode | trim }}"
+
+- name: Refuse to run against a bitrix24 instance without the ADR-007 approvals
+  ansible.builtin.assert:
+    that:
+      - bitrix24_legal_review_approved | default(false) | bool
+      - bitrix24_dpia_infra_002_approved | default(false) | bool
+    fail_msg: >-
+      {{ inventory_hostname }} is a bitrix24 PostgreSQL instance (pg_purpose =
+      {{ pg_purpose }}), but ADR-007 conditions 7 and 8 are not met. The bitrix24
+      module in Terraform refuses to create the VM without these approvals; this
+      role refuses to configure the database for the same reason. Set the approvals
+      in the inventory or remove the host.
+  when: pg_purpose == "bitrix24"
+
+- name: Install the PostgreSQL apt repository key
+  ansible.builtin.apt_key:
+    url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+    state: present
+
+- name: Add the PostgreSQL apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb http://apt.postgresql.org/pub/repos/apt {{ ansible_distribution_release }}-pgdg main"
+    state: present
+    filename: pgdg
+
+- name: Install PostgreSQL and dependencies
+  ansible.builtin.apt:
+    name:
+      - "postgresql-{{ postgres_version }}"
+      - "postgresql-client-{{ postgres_version }}"
+      - "postgresql-contrib-{{ postgres_version }}"
+      - python3-psycopg2  # for the postgres modules
+      - acl  # for become_user on files
+    state: present
+    update_cache: true
+    cache_valid_time: "{{ apt_cache_valid_time | default(3600) }}"
+
+- name: Ensure PostgreSQL is started and enabled
+  ansible.builtin.systemd:
+    name: postgresql
+    state: started
+    enabled: true
+
+- name: Configure postgresql.conf
+  ansible.builtin.template:
+    src: postgresql.conf.j2
+    dest: "{{ postgres_config_dir }}/postgresql.conf"
+    owner: postgres
+    group: postgres
+    mode: "0644"
+    validate: "/usr/lib/postgresql/{{ postgres_version }}/bin/postgres -C config_file=%s -D {{ postgres_data_dir }} || true"
+  notify: Restart postgresql
+
+- name: Configure pg_hba.conf
+  ansible.builtin.template:
+    src: pg_hba.conf.j2
+    dest: "{{ postgres_config_dir }}/pg_hba.conf"
+    owner: postgres
+    group: postgres
+    mode: "0640"
+  notify: Reload postgresql
+
+- name: Create the provisioner role
+  community.postgresql.postgresql_user:
+    name: "{{ postgres_provisioner_username }}"
+    password: "{{ postgres_provisioner_password }}"
+    role_attr_flags: "CREATEDB,NOSUPERUSER,NOLOGIN"
+    state: present
+  become: true
+  become_user: postgres
+  no_log: true
+
+- name: Create the replication role
+  community.postgresql.postgresql_user:
+    name: "{{ postgres_replication_username }}"
+    password: "{{ postgres_replication_password }}"
+    role_attr_flags: "REPLICATION,LOGIN,NOSUPERUSER"
+    state: present
+  become: true
+  become_user: postgres
+  no_log: true
+  when: pg_role | default('primary') == 'primary'
+
+- name: Report the instance state
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }}: PostgreSQL {{ postgres_version }}, purpose =
+      {{ pg_purpose }}, role = {{ pg_role | default('primary') }}, port =
+      {{ postgres_port }}, WAL-G archiving = {{ postgres_walg_enabled and pg_role | default('primary') == 'primary' }}.

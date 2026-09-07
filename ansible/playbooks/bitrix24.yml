@@ -1,0 +1,62 @@
+---
+# Bitrix24 installation (gated)
+#
+# Installs the vendor stack in the dmz, configures Keycloak as the only authentication
+# path, applies the egress allow-list and registers the separate backup schedule.
+#
+# Refuses to run against production without the two ADR-007 approvals. The same
+# approvals gate the Terraform plan, so both automation paths have to be deliberately
+# overridden — which is not a mistake, it is a decision recorded twice.
+#
+#   ansible-playbook -i inventories/prod/hosts.yml --limit bitrix24 playbooks/bitrix24.yml
+#
+# Always with `--check --diff` first, except where this file says otherwise: a
+# `--check` run that reports no changes on a host that is visibly wrong is the signal
+# that the role has stopped describing reality.
+
+- name: Install Bitrix24 in the dmz
+  hosts: bitrix24
+  become: true
+  gather_facts: true
+  serial: 1
+
+  pre_tasks:
+    - name: Fail immediately when the group is empty
+      ansible.builtin.assert:
+        that:
+          - groups['bitrix24'] | default([]) | length > 0
+        fail_msg: >-
+          No host is in the `bitrix24` group in this inventory. Either the environment
+          does not run Bitrix24, which is the expected state until ADR-007 conditions
+          7 and 8 are met, or the inventory and Terraform disagree. Nothing to do
+          either way; this assertion exists so an empty run is visibly a no-op rather
+          than silently successful.
+      run_once: true
+
+    - name: Require both approvals in production
+      ansible.builtin.assert:
+        that:
+          - bitrix24_legal_review_approved | default(false) | bool
+          - bitrix24_dpia_approved | default(false) | bool
+          - bitrix24_legal_review_reference | default('') | length > 0
+          - bitrix24_dpia_reference | default('') | length > 0
+        fail_msg: >-
+          Bitrix24 in production requires an approved legal review and an approved
+          INFRA-002 DPIA, each with a reference that says where the approval is
+          recorded. ADR-007 conditions 7 and 8; INFRA-001 condition C5. An approval
+          without a reference is an assertion, not a record.
+      when: environment_name == 'prod'
+
+    - name: Confirm the host is in the dmz
+      ansible.builtin.assert:
+        that:
+          - ansible_host is match('^10\\.10\\.40\\.')
+        fail_msg: >-
+          {{ inventory_hostname }} is at {{ ansible_host }}, which is not in the dmz
+          VLAN. ADR-007 condition 1 puts this workload in the dmz so that a compromise
+          of a closed-source application with an outbound flow we cannot inspect does
+          not become a route to tenant data.
+
+  roles:
+    - role: bitrix24
+

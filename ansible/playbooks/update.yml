@@ -1,0 +1,89 @@
+---
+# Gated patching
+#
+# Applies package and kernel updates inside a maintenance window, one batch at a time,
+# and verifies the batch before continuing.
+#
+# This is the playbook that must never be run with `--check` alone and declared done:
+# `--check` does not reboot, and a kernel update that is installed but not booted leaves
+# the host running the vulnerable kernel while every report says it is patched.
+#
+#   ansible-playbook -i inventories/prod/hosts.yml playbooks/update.yml
+#
+# Always with `--check --diff` first, except where this file says otherwise: a
+# `--check` run that reports no changes on a host that is visibly wrong is the signal
+# that the role has stopped describing reality.
+
+- name: Patch hosts in batches, verifying each batch
+  hosts: viavitae
+  become: true
+  gather_facts: true
+  # 20 % at a time, and the next batch waits for the previous one to be healthy. With
+  # four workers this is one worker per batch: a batch that takes the database host and
+  # two workers together is not a rolling update, it is an outage with extra steps.
+  serial: "20%"
+  max_fail_percentage: 0
+
+  pre_tasks:
+    - name: Refuse to patch outside the maintenance window
+      ansible.builtin.assert:
+        that:
+          - >-
+            force_update | default(false) | bool
+            or (ansible_date_time.hour | int >= maintenance_window_start_hour | int
+                and ansible_date_time.hour | int <= maintenance_window_end_hour | int)
+        fail_msg: >-
+          Patching runs between {{ maintenance_window_start_hour }}:00 and
+          {{ maintenance_window_end_hour }}:59 local time only, and it is
+          {{ ansible_date_time.hour }}:{{ ansible_date_time.minute }} on
+          {{ inventory_hostname }}. Override with `-e force_update=true` and record the
+          reason in the pull request: an unattended kernel reboot on a database host
+          is an outage nobody authorised.
+        quiet: true
+
+    - name: Record the running kernel before the update
+      ansible.builtin.command:
+        cmd: uname -r
+      register: kernel_before
+      changed_when: false
+
+  roles:
+    - role: common
+      vars:
+        common_apply_updates: true
+
+  post_tasks:
+    - name: Determine whether a reboot is required
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_required
+
+    - name: Reboot inside the window, and only inside it
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+        test_command: whoami
+      when: reboot_required.stat.exists
+
+    - name: Verify the batch is healthy before the next one starts
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: 22
+        timeout: 300
+      delegate_to: localhost
+
+    - name: Report whether the kernel actually changed
+      ansible.builtin.command:
+        cmd: uname -r
+      register: kernel_after
+      changed_when: false
+
+    - name: Fail loudly when a kernel update was installed but not booted
+      ansible.builtin.assert:
+        that:
+          - not reboot_required.stat.exists or kernel_after.stdout != kernel_before.stdout
+        fail_msg: >-
+          {{ inventory_hostname }} still reports a pending reboot and is running
+          {{ kernel_after.stdout }}, the kernel it had before. Every report will say
+          this host is patched while it runs the vulnerable kernel. Reboot it inside
+          the window, or roll the update back; do not leave it in this state.
+

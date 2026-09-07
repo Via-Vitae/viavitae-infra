@@ -1,0 +1,18 @@
+---
+# Platform web frontend.
+#
+# Pod Security Standards are set to `restricted` on every namespace except
+# `ingress` and `cert-manager`, which require privileged access for their function.
+# Kyverno enforces that these labels are present (k8s/policies/kyverno/), so a
+# namespace created by a new ApplicationSet cannot arrive unlabelled.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: web
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: viavitae

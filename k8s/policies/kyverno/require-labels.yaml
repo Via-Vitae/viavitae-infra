@@ -1,0 +1,23 @@
+---
+# Require that every namespace has the Pod Security Standard labels. A namespace
+# created by a new ApplicationSet cannot arrive unlabelled.
+
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-pod-security-labels
+spec:
+  validationFailureAction: Enforce
+  rules:
+    - name: check-pod-security-labels
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+      validate:
+        message: "Namespace must have pod-security.kubernetes.io/enforce label."
+        pattern:
+          metadata:
+            labels:
+              pod-security.kubernetes.io/enforce: "*"

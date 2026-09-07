@@ -1,0 +1,132 @@
+---
+# Estate-wide compliance baseline: hardening and observability.
+#
+# Two plays, applied together on purpose.
+#
+#   1. `hardening`  — CIS Level 1 on every guest: SSH, auditd, AIDE, fail2ban,
+#                     kernel parameters, filesystem permissions, service masks.
+#   2. `monitoring-agent` — node_exporter and the log agent, on every host
+#                     including the hypervisors, with redaction applied before
+#                     anything leaves the machine.
+#
+# They are in one file because they are one control. GDPR Art. 32(1)(d) requires a
+# process for regularly testing and evaluating the effectiveness of the measures in
+# Art. 32(1); a host that is hardened but unobserved is a host whose hardening cannot
+# be shown to still hold, and an observed but unhardened host produces telemetry
+# about a system that was never brought into compliance. Neither half is useful
+# alone, so neither is applied alone.
+#
+# Runs after `proxmox-base.yml` on hypervisors and after a VM's first boot on guests.
+# Idempotent and safe to re-run. This is the playbook to reach for when a Trivy or
+# Checkov finding says a *host* is misconfigured rather than a manifest.
+#
+#   ansible-playbook -i inventories/prod/hosts.yml playbooks/hardening.yml
+#
+# Always with `--check --diff` first, except where this file says otherwise: a
+# `--check` run that reports no changes on a host that is visibly wrong is the signal
+# that the role has stopped describing reality.
+
+- name: Harden every guest
+  hosts: viavitae
+  become: true
+  gather_facts: true
+  serial: "20%"
+
+  pre_tasks:
+    - name: Record the pre-hardening SSH configuration
+      ansible.builtin.stat:
+        path: /etc/ssh/sshd_config
+      register: sshd_config_before
+      changed_when: false
+
+    - name: Open a second, independent SSH connection before changing anything
+      # Delegated to the control node, not to a peer host. A peer guest does not
+      # hold the automation private key, so delegating there produces a task that
+      # fails every single run — and with `failed_when: false` it fails silently,
+      # which is worse than not having the check at all.
+      #
+      # What this actually proves: the control node can open a *new* session right
+      # now, so MaxStartups is not saturated and fail2ban has not already banned it.
+      # That matters because this role installs an sshd jail. A control node banned
+      # mid-run cannot verify the run afterwards, and on a two-node cluster at
+      # 03:00 the alternative to verifying remotely is a site visit.
+      ansible.builtin.command:
+        cmd: >-
+          ssh -o BatchMode=yes -o ConnectTimeout=5 -o IdentitiesOnly=yes
+          -o PreferredAuthentications=publickey
+          {{ automation_user }}@{{ ansible_host }} true
+      delegate_to: localhost
+      register: ssh_recheck
+      changed_when: false
+      failed_when: false
+
+    - name: Refuse to harden a host that cannot be reached twice
+      ansible.builtin.assert:
+        that:
+          - ssh_recheck.rc == 0
+        fail_msg: >-
+          A second SSH connection to {{ inventory_hostname }} failed
+          (rc={{ ssh_recheck.rc | default('none') }}). Do not harden this host: if
+          fail2ban or sshd is already refusing new sessions from the control node,
+          applying this role leaves no way to verify the result or to undo it
+          remotely. Investigate the refusal first.
+      when: ssh_recheck.rc is defined
+
+  roles:
+    - role: hardening
+
+  post_tasks:
+    - name: Confirm the automation user can still authenticate
+      ansible.builtin.command:
+        cmd: >-
+          ssh -o BatchMode=yes -o ConnectTimeout=10 -o IdentitiesOnly=yes
+          -o PreferredAuthentications=publickey
+          {{ automation_user }}@{{ ansible_host }} true
+      delegate_to: localhost
+      changed_when: false
+      failed_when: false
+      register: post_hardening_ssh
+
+    - name: Report a lockout immediately, while the console is still an option
+      ansible.builtin.assert:
+        that:
+          - post_hardening_ssh.rc == 0
+        fail_msg: >-
+          {{ inventory_hostname }} can no longer be reached as {{ automation_user }}
+          after hardening (rc={{ post_hardening_ssh.rc | default('none') }}). Do not
+          re-run. Use the Proxmox console (`qm terminal
+          {{ hostvars[inventory_hostname].vmid }}`) to restore
+          /etc/ssh/sshd_config from the backup this role takes before changing it.
+          If the host is in fail2ban's sshd jail, `fail2ban-client set sshd
+          unbanip <control node address>` from the console is faster than a
+          rebuild.
+
+- name: Ship metrics and logs from every host, hypervisors included
+  hosts: viavitae:proxmox
+  become: true
+  gather_facts: true
+  serial: "20%"
+
+  pre_tasks:
+    - name: Refuse to run where the log endpoint is not configured
+      # `loki_endpoint` in group_vars/all.yml points at an in-cluster service name.
+      # On a hypervisor that name does not resolve, so the agent has to be given the
+      # externally reachable address instead. An agent that cannot ship is an agent
+      # that buffers to disk until the disk is full, and then drops logs silently —
+      # which reads as "no errors" in exactly the window where errors happened.
+      ansible.builtin.assert:
+        that:
+          - host_log_endpoint is defined
+          - host_log_endpoint | length > 0
+          - host_log_endpoint is match('^https?://')
+        fail_msg: >-
+          {{ inventory_hostname }} has no usable `host_log_endpoint`
+          (got {{ host_log_endpoint | default('undefined') }}). Set it in the
+          host's group_vars: an absolute URL for the hypervisors, which are
+          outside the cluster network, and the in-cluster service name for guests
+          that run on a cluster node.
+        var: host_log_endpoint
+
+  roles:
+    - role: monitoring-agent
+

@@ -1,0 +1,118 @@
+---
+# Install and configure Keycloak. The role is idempotent and safe to re-run; it
+# installs the binary on first run and verifies the version on subsequent runs.
+
+- name: Assert the platform is the one this role was written for
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == "Debian"
+      - ansible_distribution_major_version == "12"
+    fail_msg: >-
+      {{ inventory_hostname }} runs {{ ansible_distribution }}
+      {{ ansible_distribution_major_version }}. Keycloak package names and the
+      systemd unit in this role are Debian 12 specifics. Port the role deliberately
+      rather than discovering the differences on a production host.
+
+- name: Read the public hostname Terraform declared
+  ansible.builtin.slurp:
+    src: /etc/viavitae/keycloak-hostname
+  register: keycloak_hostname_slurp
+  failed_when: false
+
+- name: Fail rather than default the issuer
+  ansible.builtin.assert:
+    that:
+      - keycloak_hostname_slurp.content is defined
+    fail_msg: >-
+      {{ inventory_hostname }} has no /etc/viavitae/keycloak-hostname, so it was not
+      created by terraform/modules/keycloak-vm. This role refuses to configure
+      Keycloak without a declared public hostname, because the issuer field in tokens
+      must match the hostname the application uses, and a mismatch breaks OIDC
+      validation.
+
+- name: Set the public hostname fact
+  ansible.builtin.set_fact:
+    keycloak_public_hostname: "{{ keycloak_hostname_slurp.content | b64decode | trim }}"
+
+- name: Install Java 21 (Keycloak requirement)
+  ansible.builtin.apt:
+    name:
+      - openjdk-21-jre-headless
+      - acl
+    state: present
+    update_cache: true
+    cache_valid_time: "{{ apt_cache_valid_time | default(3600) }}"
+
+- name: Create the Keycloak user
+  ansible.builtin.user:
+    name: keycloak
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ keycloak_install_dir }}"
+    create_home: false
+
+- name: Create the Keycloak directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: keycloak
+    group: keycloak
+    mode: "0755"
+  loop:
+    - "{{ keycloak_install_dir }}"
+    - "{{ keycloak_config_dir }}"
+    - "{{ keycloak_data_dir }}"
+
+- name: Download and extract Keycloak
+  ansible.builtin.unarchive:
+    src: "https://github.com/keycloak/keycloak/releases/download/{{ keycloak_version }}/keycloak-{{ keycloak_version }}.tar.gz"
+    dest: "{{ keycloak_install_dir }}"
+    remote_src: true
+    owner: keycloak
+    group: keycloak
+    extra_opts: [--strip-components=1]
+  notify: Verify Keycloak installation
+
+- name: Configure Keycloak
+  ansible.builtin.template:
+    src: keycloak.conf.j2
+    dest: "{{ keycloak_config_dir }}/keycloak.conf"
+    owner: keycloak
+    group: keycloak
+    mode: "0640"
+  notify: Restart keycloak
+  no_log: true
+
+- name: Install the systemd unit
+  ansible.builtin.template:
+    src: keycloak.service.j2
+    dest: /etc/systemd/system/keycloak.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart keycloak
+
+- name: Ensure Keycloak is started and enabled
+  ansible.builtin.systemd:
+    name: keycloak
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Wait for Keycloak to be ready
+  ansible.builtin.uri:
+    url: "http://localhost:{{ keycloak_http_port }}/health/ready"
+    status_code: 200
+  register: keycloak_health
+  until: keycloak_health.status == 200
+  retries: 30
+  delay: 5
+  changed_when: false
+
+- name: Report the Keycloak state
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }}: Keycloak {{ keycloak_version }} installed, listening on
+      {{ keycloak_http_port }}, public hostname = {{ keycloak_public_hostname }}.

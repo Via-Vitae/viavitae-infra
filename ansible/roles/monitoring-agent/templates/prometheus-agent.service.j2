@@ -1,0 +1,18 @@
+# Managed by ansible/roles/monitoring-agent. Edit the role, not this file.
+
+[Unit]
+Description=Prometheus Agent Mode
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart={{ prometheus_agent_install_dir }}/prometheus --config.file={{ prometheus_agent_config_dir }}/prometheus.yml --enable-feature=agent --storage.agent.wal-dir={{ prometheus_agent_data_dir }}/wal
+Restart=on-failure
+RestartSec=10
+
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,41 @@
+# Collections required by this repository.
+#
+# Pinned to exact versions. Every other supply-chain input in this repository is
+# pinned — actions to a commit SHA, providers to a lock file, downloaded binaries to
+# a SHA-256 — and a collection is the same kind of input: it is code that runs with
+# root on every machine in the inventory. Dependabot is configured for `terraform`
+# and `github-actions` only, so these are updated by pull request, deliberately and
+# visibly, rather than by a bot nobody is watching.
+#
+# Install with:
+#
+#   ansible-galaxy collection install -r ansible/requirements.yml
+#
+# CI installs with `--disable-gpg-signature-verification` never set and runs the
+# `ansible` job offline (`ansible-lint --offline`), so a collection that is not
+# already vendored in the runner image fails the build rather than being fetched
+# from wherever DNS happens to point.
+
+collections:
+  - name: community.general
+    version: "13.3.0"
+    # zpool/pvesr/pbs helpers, the `yaml` callback plumbing and the miscellaneous
+    # modules the roles use that are not in ansible.builtin.
+
+  - name: community.sops
+    version: "2.4.0"
+    # The vars plugin that decrypts `*.sops.yml` group_vars at runtime. ADR-005
+    # decision 4: SOPS/age rather than ansible-vault, so that the same ciphertext is
+    # readable by Argo CD, by Terraform's outputs and by a human with `sops`, instead
+    # of only by Ansible.
+
+  - name: ansible.posix
+    version: "2.2.2"
+    # `synchronize` for offsite replication, `authorized_key` for the automation
+    # user, `mount` and `sysctl` for the hardening role, `seboolean` for SELinux if
+    # a guest ever ships with it.
+
+  - name: community.postgresql
+    version: "3.10.0"
+    # PostgreSQL role and modules for the postgres role. Used to create roles,
+    # databases, and manage privileges.
