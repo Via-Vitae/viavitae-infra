@@ -1,46 +1,65 @@
-# SOPS-encrypted variables for `prod` — TEMPLATE, NOT YET ENCRYPTED.
+#ENC[AES256_GCM,data:pH/dxh6G5KQ6urwG8wV2D1F7YN14uH+Jlw7xDJIkad/hA5PWAbaPOl/emm3ORenm58GegiGtZvFG52eGI3lhUbSlfPzI,iv:uzz4mnivSouOccCGl33jC+LVdeRcTapsXy9AYuBQGoQ=,tag:tluTb18LTbLbGhVgA1zKBA==,type:comment]
 #
-# This file is committed as ciphertext in normal operation. What is committed here is
-# the *shape*: the plaintext keys with placeholder values, so that a reviewer can see
-# what the environment needs and `ansible-lint` can parse it.
+#ENC[AES256_GCM,data:lDhuzLVZau/f7s9Qc3PGCJcRq9soc6T7pnTMU/cZQDBJj9IvemUNej5g/hI+qjktMhcEwDkdzV7J+VG58YaqkdSMphj5+thVXSuZl6FRgIZsYNsM,iv:AK6o8Nn4gh6M5qnLj0Y2aGs8ZV5KhcC4WVyX8OUHqyA=,tag:rsvMv5Inlf4nHgDYSizh6A==,type:comment]
+#ENC[AES256_GCM,data:4P5dC8Z8BpZcA1ZaFa6R1J4pAIfRVJiPU4qp12mNGKri0U2hhBH5AVqU4DleGI/6y41YWfSoYW7CzfCzM7qWcpc/7g1o/uxZ6aaSs0utC/oToSPT,iv:4TO9uS9ruT7ZSXM1jaNI4GabQJiZyvVDWyNDo6qyOFw=,tag:tT4J2KVJAXKN4lZTGuSVEg==,type:comment]
+#ENC[AES256_GCM,data:SeN/5gi3xmqpABqGIyw+rDl50ImvU3pGT/IC7FS50dpWWrZKbWGyuMCoxTzWv3U2f8uzaG6K0Xw1+nxI,iv:tXmqtDP+3rM+Vo0TLadiS3vfbR0H/l9sZkziSF4Zr2o=,tag:QSgoLTZUYtHgufVUfjpSMA==,type:comment]
 #
-# To produce the real file:
+#ENC[AES256_GCM,data:ONh7igq2h+gY4tukvysu+cSrEZws8rAEjwo=,iv:+Cr9bJ/CNfh21II2+Ey/h1qQxF/bDB817fltYVGnkzs=,tag:F+1pvgk1/kma+cbYo9VqtQ==,type:comment]
 #
-#   1. Fill in the values below.
-#   2. sops --encrypt --in-place ansible/inventories/prod/group_vars/vault.sops.yml
-#   3. Verify: sops file-status ansible/inventories/prod/group_vars/vault.sops.yml
-#      must report the file as encrypted. CI asserts this, so an unencrypted commit
-#      fails the build rather than leaking.
-#   4. Shred the plaintext working copy. Do not leave it in a scratch directory:
-#      `find / -name '*.plain.yaml'` is part of the state-hygiene gate for a reason.
+#ENC[AES256_GCM,data:MEpvJY7aVrZTTadYYUp5YUj1WFjxaLdhmoFl0Mk7sw==,iv:RdUQqLD8ax49i6eGxljlxeDKL6gW1i5SPHZ/aeht5ys=,tag:X4k5qdh4f9SzRUdrVuN2dA==,type:comment]
+#ENC[AES256_GCM,data:ZRCwU9Rueyb/SNBcYbMlciDYTQMHweb9BJeY5eFlmbT1wU/r8CKmk3RwYiUsc/+OMBbc01iRFGkHijSx4ZfIzxnJhVa0tmFfYNpsE3Cnr7WxZQ==,iv:M9PxjHNoHPrDjSzj0LWNKCeT8xL/4i13kkQXZPhGphU=,tag:1NnCDTsztXFG29ErYGe+dA==,type:comment]
+#ENC[AES256_GCM,data:Enti8z/Y9ToTFrnop0HVst5wvra+ySin39Nva8L5fN0g0//MtrZ4KDYGnxgWnXdIL2NmK1yCJ1PekIMrE4W1Mhc5MBIRD0kFTYeanHA3mtyz,iv:dkXJyKN2muTbFvKvfyqM77ZOMTqvZwW0hXkktNRKD8w=,tag:DKpjK9CO4M9ViJoEPBSsRg==,type:comment]
+#ENC[AES256_GCM,data:mJESateLXU+vmOmqS7crdAozXuvMmGd3LMdDYkaaa0m9ubVbL0DW9L2SIVTqeiQogSW7ojDhziMuqUtNYH9uHum+d5yuYTXz6gHpsI8NtzZmKQ==,iv:7fFuSn5jRuOPJuIqf6xfNw5ujeJiFORTPVqxJgpBtak=,tag:FF3gQ/fBXbiHnf2s33xcCg==,type:comment]
+#ENC[AES256_GCM,data:zex17kPwxZAXfuqGFZI7xs6RCud8aU3uvgMCyKYDMlGz3yy5kh6BOu5W,iv:Um1zJb4XcN6ZrAYNUWfqYv0KxiuaV2HrSJXPNdptTpU=,tag:gzy/upaap+cfsbFSvVCkjg==,type:comment]
+#ENC[AES256_GCM,data:Th+gbUbRTIKcauVyWu9+VEQwhjLXV556tkCFmeh/dVjk2aUxKJh0RnEwiThu1r2FJ/y0g91jd1wM0GGuSpBCkfuqkozcHq/+j4c9ip07WQ==,iv:E73vLT8SsnBM68AlneZeaPadXuKuhD41Ix/HcCjn+0w=,tag:kvxNtGbIIATbh/+asGppOQ==,type:comment]
+#ENC[AES256_GCM,data:K015JUOvtG+fEGTCPNylY/suOS5mu+Im0jkmcy9dVWu9CZzpRUwEaNVnLtoXrRdLuT2zSDZa4ZFQTgcd9Wic641AsbhgYXm0mownfBd6i0ReFjI=,iv:EOue8kVxaMYb6RK/bjyv3kqMpILP79gUb12gnG+cEs8=,tag:/3WqYy+QGjOU2ySLdou9rQ==,type:comment]
 #
-# `.sops.yaml` at the repository root defines the age recipients for this path. The
-# community.sops vars plugin decrypts it at runtime; if `vars_plugins_enabled` in
-# ansible.cfg is edited and that plugin is dropped, these variables resolve to
-# ciphertext and are then written to the guest — which is why that setting is
-# commented in ansible.cfg.
-
-# PostgreSQL: the provisioner role Terraform connects as, and the replication role.
-# Created by roles/postgres; never by Terraform (ADR-003 decision 3).
-pg_provisioner_password: "REPLACE_ME_THEN_SOPS_ENCRYPT"
-pg_replication_password: "REPLACE_ME_THEN_SOPS_ENCRYPT"
+#ENC[AES256_GCM,data:aSZRGyXSmr1IIQIZNzIZA0AOxgE5V0REY3uDssmGnbamPxM9lQp2ucGCUG5E+a0WqMySPalY83bGB6eKrHGZoIxmVLo+/D9zU+q4bROJ+mHCBQ==,iv:6Rl2MhQQQFsnHdHoRcDO8iyzCSlqhLREVQmbI+i3QHg=,tag:wy8+4M8UT8OA0x3NcKeaVA==,type:comment]
+#ENC[AES256_GCM,data:8R6Z/BMhgDf1zG/IxDj+tg/NZjQ8U/3J40L5IJk9H1znPQi0kFtxuLNv5GkpWn9cfWd59ef1I6ABs9sHMRYSAR4LHJC2rEgnBEy1xeLca/4=,iv:SJZ1udu2n4HKRj0FNoLNf0Ivx2ugPsMKAvNTmZzgOs4=,tag:BWe/3TmyIv/8JHDJ4Rwwmw==,type:comment]
+#ENC[AES256_GCM,data:OHlznngy/hPrJKDrk0W8NPITjfuH84OrThPXoxS1Pq+ghj2qhzLFquecn1l1XjobGwnPK+WRl8B6WTLgXMTBVLKJrwCVAjnPncBWwyk=,iv:vDsyeigOOcY0Q4/mm4LjzQjvR+6cvQclzwdJdXibgeo=,tag:KurQhjrmQAsY2rHgmV3qpg==,type:comment]
+#ENC[AES256_GCM,data:dpvxjMLjTeJBwothNxPlU0zOGYZcDVKs/bCdXN4LH+V8N1c8sbQo5WXj7xSiSMYP1jseVfFJTh2uI9Mi2i+Uey61HhAuizKMF5JPSnNy,iv:o2KxJQRILnqbHQ43aDhqfyMbkOLYRYELfO8VVDdkrfU=,tag:8dcVO4gxeTKhQFB6g9wJNg==,type:comment]
+#ENC[AES256_GCM,data:C64JJUHJgfzUA+L5caVRM60Kl5knqqZPPB0=,iv:y+MA5u0JRTLdg3j7gzXInKV34ZUeZS1AwyNevNpRjGc=,tag:zjwB9/qiidrJf+hzIrX/vg==,type:comment]
+#ENC[AES256_GCM,data:P1KcgBkQyDEBpgUR4a0tAW05gUVIBR3an0ci+wqgH2Y0/J/D3sQZ2DIiy5G1CRMSj32f27fnlybDaILUkbREZM+B/zIOiNH2yFqBavt1VHy8qQ==,iv:5TFnPZUPgCufy4R//qcWebQVoJibhrZeH73N9SBywHM=,tag:LN0kXCoBS/sxu6Nje7xZJA==,type:comment]
+#ENC[AES256_GCM,data:6P41ClNsK7b1GhW0UpWcjQQ+3c7yU+wR6YFM4KtgnlKNlJ8G5tE8M2hQZcoO1lMHbzHeIN17fwB0kJ2+YeDtOFyeRYg=,iv:iKFcaGdPAs1eNtpAlh/8d6SIxgIW/w7Xa4qf0zh5lLk=,tag:l8wwjBHwETefXr84GkHQEg==,type:comment]
+pg_provisioner_password: ENC[AES256_GCM,data:YZ4rWP8BXp2bxfwi7Ni/EStXGXbpiGQwEvJuKg==,iv:N9KfOpgVs0K8cqhTWCZA26sunPosDtHzHZ3DO/McFXk=,tag:RC8UpPLZwfLNZPizDjYsNQ==,type:str]
+pg_replication_password: ENC[AES256_GCM,data:MJbrZ3M5HQwe3mJKrv/Ma2PKQTJRpI669k1hZA==,iv:inatF4EZ7vf5i3Qook8hKjhjh0n6i9T1rJZggKxPG8A=,tag:CRKj9394jgeZGoXlP6hmAQ==,type:str]
 pg_app_role_passwords: {}
-
-# Keycloak bootstrap administrator. Rotated by roles/keycloak after first run, so
-# this value is only ever used once, on a machine that does not yet exist.
-keycloak_bootstrap_admin_password: "REPLACE_ME_THEN_SOPS_ENCRYPT"
-
-# WAL-G and the offsite replica: bucket credentials, not bucket names. The names are
-# in Terraform outputs and are not secret.
-wal_g_s3_access_key: "REPLACE_ME_THEN_SOPS_ENCRYPT"
-wal_g_s3_secret_key: "REPLACE_ME_THEN_SOPS_ENCRYPT"
-
-# MinIO on the monitoring VM: one access key per consumer, so that a leaked Loki key
-# can be revoked without touching Prometheus.
-minio_admin_access_key: "REPLACE_ME_THEN_SOPS_ENCRYPT"
-minio_admin_secret_key: "REPLACE_ME_THEN_SOPS_ENCRYPT"
-
-# GitHub Actions runner registration. Scoped to this repository and rotated on a
-# schedule, because a runner token is a credential that can execute code on a host
-# that holds production credentials.
-github_runner_registration_token: "REPLACE_ME_THEN_SOPS_ENCRYPT"
+#ENC[AES256_GCM,data:4AK5Xi3a1ZGjGGcqyKaAuo4V8/y+iNLSOkUFyrxa3JwNd36CTQqvLwu0bQG9RmG+23yzG7fCmaiHsHoJ2vmO1wiSvZbUXxLfNA7dx4s8JGk=,iv:Gwd4DiPEtaBOFhj5GrrWvZtWu1bNIuy2NFTErL0xhCo=,tag:MCoPkus04IJM+XPd7pjseA==,type:comment]
+#ENC[AES256_GCM,data:u5/KG+9D871mn+OZkkOVjJHEmv4Sbg7FE/MwsZRyh497RPqpjzg2hOWCq6Sv4yQJq15bPvy++fizeYWFLd6zpJQMMJE3mYlTWQ==,iv:Q7pKqI5wzbT/gz518lK3xQFmCOivR0yUXmHCJChUFtk=,tag:RfP5sqnVZpzoSSxRzC8ykg==,type:comment]
+keycloak_bootstrap_admin_password: ENC[AES256_GCM,data:aWbi9LnyPyAUE41SCTS/H5ks+vGQAxoDCAM5xg==,iv:deFm7aXtELwODpyMPRCXiHSIb3Xtgqa6CZzKwO8hsss=,tag:xczunAuFpfXwG3mXRyBvDw==,type:str]
+#ENC[AES256_GCM,data:cwx/HUOZ1Dt1cKTYck6ijGCEgedg1n8bO2yk1WPDRXcd2B+8skGPCSfVrRmBiI7ZPnLr4qoRq/gPQ2Mif0QL46tRHVcQGNY6d2vSKQ5P14qH5eM=,iv:JGc29uGetSK1AMlRKsHuTT8hkJ2HkMaSUi+UEXbU+hs=,tag:DFHp3tq6tFoIoX6lFLCzXQ==,type:comment]
+#ENC[AES256_GCM,data:hWtzKOfHLyr0q+LaFGKo7Te2BT+YuhBgethXI3naalAMji6dLQRPH2E=,iv:BS1wZAk+DkfknDbWxnYhjiF8FCiHIlssqLsjzzvq+Rk=,tag:VcJgx5IG/IS3+ry805KqIg==,type:comment]
+wal_g_s3_access_key: ENC[AES256_GCM,data:r0UQBo5+a9YGSrKZtGO37F/AikzV/XziTIYe1A==,iv:giXpZCQ0k7AThuONoSMGpeKmi+lpOEmONrdYPS7Gyb8=,tag:XKGVcnniFFSy6uk/XXn/Dg==,type:str]
+wal_g_s3_secret_key: ENC[AES256_GCM,data:Zqz2ikA5s4yJ3LSUCbigLWnumqcx9+Khyi7s4g==,iv:zTdVvQ6LOrZ1RShLoYRzyEJBS0QISPtZFF6DXPnM2g4=,tag:Fxi4QbxWITiRHo6k5mKmCQ==,type:str]
+#ENC[AES256_GCM,data:3s2gCF5Jrqk0Df8cuStu8Zq+PfhTb3KZ+QynngIOns7A8Y2crZtmEcXNqhmhCwvbfJ1LCGcnv5tsZsjErHwXXod030I6Qq25DjS85msePhoQZ9o=,iv:5Kh3zaZX191jbLZBDAdBuI4OtpaVYouoPsdSBaPC72k=,tag:nFyt/fSUBMaQXMTrajL7+w==,type:comment]
+#ENC[AES256_GCM,data:ZOl+IbtzN7IcvitsQ1uL7pUVCvPo7H3o0oYwUcXGGmZZr3MGLukryTJmADs=,iv:Pa3CGJyy84USCyOzzCUVr3Ps7ADtpRKlQYjMGIkhtes=,tag:5lQ0NaXynPKRnuQ2BeBFaQ==,type:comment]
+minio_admin_access_key: ENC[AES256_GCM,data:JcClxR3eY3WlMECefH3OxeBKLOjqPFDsFCL3aw==,iv:C2caSkYdwNFxCxnch153/1vDK5UwsNF1ZevJxD4iWIU=,tag:SaukjNiEEu2NWbtkoQdxJQ==,type:str]
+minio_admin_secret_key: ENC[AES256_GCM,data:p3LQnB/Pn8WIWidob3pv/c/k050G9ddFYrVsDA==,iv:cyRHQt7CM3PKAz3MKmUDOg1UB3P/0w04fDCvXVjX3AQ=,tag:VeqrbHnel/R+wYSuIx+ukw==,type:str]
+#ENC[AES256_GCM,data:viryj3jyjxE99JA3kkcFenrq3PXJIyWupKP11nekILe/wwcq7qkoVfmyY8ZriSe77mTv1vwpv3MEdmbxS2QiSboOsI2GhD/gA1cfbQYLWA==,iv:4bGweVoKGWtjZU0GxLnIr5Sb+F2OE9t1Zkj5ZDsx9MY=,tag:lLoRZ6S+2sijLWyGbUU/3Q==,type:comment]
+#ENC[AES256_GCM,data:wKSs6c2QkMuiJqMSgfY2xpFSOY8uNZ3HwMopLMZr65bc8MC9EUQ6GkGxrv7wswmedeEgiNsY7rvdLMigremgdvLfrV/Q49V3iscq4Kj0nCw6,iv:3NyeA2L4TXYF+rqnluyuRxG4bIl7LJyt6XzstubbcKI=,tag:3lj6metQs+TI/XaI0Bwnfw==,type:comment]
+#ENC[AES256_GCM,data:mlW0GRcIpDEyP8nWaNRbYkTMmHKqu22tFsYhLHYqriGnp2c=,iv:e+/zLJpbApEMdoLVYQ0qflGU3Wz72KXswhADMBogn0Q=,tag:tNwhFuaOgTTG2VoG8jsQTA==,type:comment]
+github_runner_registration_token: ENC[AES256_GCM,data:A3eMFHLbjK2fIpHKs92btsCCkZsb/IyGBBrguw==,iv:5aHcUZx+wbW6SWoeNO+/bvwrr2KiBC3GHxHPeD3+SRE=,tag:eNVKLK/xSYKLxlkbOZdNsw==,type:str]
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSB2RC9ZNHVDbVNwQlpmaTU3
+            Ry9GTUZwK1pVd3Blc1JQVUVWMWRLQVJEY0drCko3c0dQbE1kUWtadVFrZVRYYXZo
+            aDFBYkgrL2pkUXMxUEdRS0ZKUDJlZkkKLS0tIFE2akVtSGk0c0psZlQ0R0tjalVI
+            MUI5UzNxVDMzQldmS0RPMExBWW5vTDAKsWpBRZPHI13EZRt77APzQzP/Fuf2QaLY
+            XD6JQji8OqvD8gdEYLWETjl99n6e/17BKIAYO5Z8rDyasbZSwkxAnQ==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age1a7yvzgpm3p9tzf6aefz8vr0zcdawxtqqx887surkc8l7q3xn39qs4y2nlh
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSAweUJaYTZmaVN2SlNENm9D
+            eEJsUjdMekJ0WFdUQ0pSTTlCVmJ5TythR2pjCmF3d2hPMjk1WlVsZEVlSVZxQVht
+            a1FjNFp1QU1SOUd6V1hFQkcrRVdkSmcKLS0tIDV2V3FOQngzTGZKUXBqYmJIeDBv
+            OFFZQ1FSY0Vxd2hHZ0J6M1ZDaE03MmsK0g2uV7HHFgOxwwaUvoETRYVtyDIPUyrP
+            YhRSWespu1qr4XmbMVjqmfnjrvEChgesGCt/nYLIlpbBrCIZocpNtQ==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age1a8f0zphcq96denjfdpwevz8kdkvjxf0zwhag22r0pfa06uxq4uwsvjmm39
+    lastmodified: "2026-09-08T19:26:25Z"
+    mac: ENC[AES256_GCM,data:RwK43WO3XfhWDJih8lTzCz17SA4RyIdz4ShdVbHgXDLQZyT0DwtO6lUdBsdTr9+abjivg4+5mA+a3gC3P6ZDeBKd+i26TyrzzYEMwSnwAGxbu9RIUSAQja+UXNo7NMre7d1ml9/7Mqz7h1TVwBhElVMACLLpTzyrblvmhC/6lgM=,iv:ZpMPFOBjSUH9yPqzwvduUg7dRAHxbZP30Uw9rymXn7k=,tag:YlIUvYZD8yNdhOuV7imn6Q==,type:str]
+    unencrypted_suffix: _unencrypted
+    version: 3.13.3

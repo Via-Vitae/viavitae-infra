@@ -1,0 +1,37 @@
+# SOPS recipients allow-list — Gate 7
+#
+# This file is the committed source of truth for which age public keys are
+# authorised to receive SOPS-encrypted secrets. The `gate-7-recipients` job in
+# .github/workflows/security.yml diffs this file against .sops.yaml on every CI
+# run; a mismatch fails the build.
+#
+# Order must match .sops.yaml creation rules exactly:
+#   - dev: CI, operator1, operator2
+#   - staging: CI, operator1, operator2
+#   - prod: operator1, operator2 (NO CI key)
+#   - k8s secrets: CI, operator1, operator2
+#   - terraform vars: CI, operator1, operator2
+
+# Dev environment
+age14lz90j3z7umrws899mcckeefvqcfqh996aml6x07jjfpur6ae3zqe0ar3r
+age1a7yvzgpm3p9tzf6aefz8vr0zcdawxtqqx887surkc8l7q3xn39qs4y2nlh
+age1a8f0zphcq96denjfdpwevz8kdkvjxf0zwhag22r0pfa06uxq4uwsvjmm39
+
+# Staging environment
+age14lz90j3z7umrws899mcckeefvqcfqh996aml6x07jjfpur6ae3zqe0ar3r
+age1a7yvzgpm3p9tzf6aefz8vr0zcdawxtqqx887surkc8l7q3xn39qs4y2nlh
+age1a8f0zphcq96denjfdpwevz8kdkvjxf0zwhag22r0pfa06uxq4uwsvjmm39
+
+# Prod environment (NO CI key)
+age1a7yvzgpm3p9tzf6aefz8vr0zcdawxtqqx887surkc8l7q3xn39qs4y2nlh
+age1a8f0zphcq96denjfdpwevz8kdkvjxf0zwhag22r0pfa06uxq4uwsvjmm39
+
+# Kubernetes secrets
+age14lz90j3z7umrws899mcckeefvqcfqh996aml6x07jjfpur6ae3zqe0ar3r
+age1a7yvzgpm3p9tzf6aefz8vr0zcdawxtqqx887surkc8l7q3xn39qs4y2nlh
+age1a8f0zphcq96denjfdpwevz8kdkvjxf0zwhag22r0pfa06uxq4uwsvjmm39
+
+# Terraform vars
+age14lz90j3z7umrws899mcckeefvqcfqh996aml6x07jjfpur6ae3zqe0ar3r
+age1a7yvzgpm3p9tzf6aefz8vr0zcdawxtqqx887surkc8l7q3xn39qs4y2nlh
+age1a8f0zphcq96denjfdpwevz8kdkvjxf0zwhag22r0pfa06uxq4uwsvjmm39
