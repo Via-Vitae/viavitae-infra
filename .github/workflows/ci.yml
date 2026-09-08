@@ -38,6 +38,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  TERRAFORM_VERSION: "1.16.1"
+  # SHA-256 checksums — verify from https://releases.hashicorp.com/terraform/<version>/terraform_<version>_SHA256SUMS
+  TERRAFORM_SHA256: "045d33b4b02b7980c62a38ec1beea24ee084ea8caf3f503c200554bd9a0cbe49"
+  TFLINT_VERSION: "0.50.0"
+  TFLINT_SHA256: "ceb65a64b7b2b231eac9c24c32cf67cb7d7382ae18558f0dfadef2b8bff8627c"
   PYTHON_VERSION: "3.12"
   NODE_VERSION: "22"
   COVERAGE_MIN: "80"
@@ -158,12 +163,33 @@ jobs:
         if: matrix.stack == 'terraform'
         run: |
           set -euo pipefail
-          # terraform is preinstalled on the ubuntu-latest runner image
+          curl -fsSL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" -o terraform.zip
+          echo "${TERRAFORM_SHA256}  terraform.zip" > terraform.zip.sha256
+          sha256sum --check --strict terraform.zip.sha256 || {
+            echo "::error::Terraform checksum verification failed"
+            exit 1
+          }
+          echo "✓ Terraform checksum verified"
+          unzip -o terraform.zip -d /usr/local/bin/ && rm terraform.zip terraform.zip.sha256
           terraform version
 
       - name: Terraform format check
         if: matrix.stack == 'terraform'
         run: terraform fmt -check -recursive -diff
+
+      - name: Install tflint
+        if: matrix.stack == 'terraform'
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/terraform-linters/tflint/releases/download/v${TFLINT_VERSION}/tflint_linux_amd64.zip" -o tflint.zip
+          echo "${TFLINT_SHA256}  tflint.zip" > tflint.zip.sha256
+          sha256sum --check --strict tflint.zip.sha256 || {
+            echo "::error::tflint checksum verification failed"
+            exit 1
+          }
+          echo "✓ tflint checksum verified"
+          unzip -o tflint.zip -d /usr/local/bin/ && rm tflint.zip tflint.zip.sha256
+          tflint --version
 
       - name: TFLint
         if: matrix.stack == 'terraform'
