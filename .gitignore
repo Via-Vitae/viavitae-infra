@@ -38,6 +38,8 @@ age.key
 age.key.txt
 age-*.key
 *.agekey
+age-keys/*.txt
+!age-keys/*.pub
 sops-*.json
 *.dec.yaml
 *.dec.yml
