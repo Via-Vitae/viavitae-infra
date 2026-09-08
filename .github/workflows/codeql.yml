@@ -48,11 +48,43 @@ env:
   # Language matrix. Add a language here and the rest of the pipeline follows.
   # Supported: python, javascript-typescript, go, java-kotlin, csharp, ruby,
   # swift, cpp, actions.
+  # NOTE: javascript-typescript is conditional — the job checks for JS/TS files
+  # and skips with neutral success if none exist (this repo is infra-only).
   CODEQL_LANGUAGES: "python,javascript-typescript"
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # detect — check which languages are present before running CodeQL
+  # ---------------------------------------------------------------------------
+  detect:
+    name: Detect languages
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      languages: ${{ steps.detect.outputs.languages }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Detect present languages
+        id: detect
+        run: |
+          set -euo pipefail
+          langs=("python")
+          # Only include javascript-typescript if JS/TS files exist
+          if find . -type f \( -name '*.js' -o -name '*.jsx' -o -name '*.ts' -o -name '*.tsx' \) \
+             -not -path './node_modules/*' -print -quit | grep -q .; then
+            langs+=("javascript-typescript")
+            echo "✓ JavaScript/TypeScript files found — including in CodeQL scan"
+          else
+            echo "○ No JavaScript/TypeScript files — skipping CodeQL JS/TS job"
+          fi
+          # Output as JSON array
+          printf 'languages=%s\n' "$(jq -cn --args '$ARGS.positional' "${langs[@]}")" >> "$GITHUB_OUTPUT"
+
   analyze:
     name: Analyze (${{ matrix.language }})
+    needs: detect
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -66,7 +98,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: ["python", "javascript-typescript"]
+        language: ${{ fromJson(needs.detect.outputs.languages) }}
         # build-mode:
         #   none   — no compilation step; correct for Python and JS/TS.
         #   manual — run your own build commands between init and analyze.

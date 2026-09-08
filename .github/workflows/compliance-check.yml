@@ -38,8 +38,8 @@ env:
   NODE_VERSION: "22"
   # Licence policy. Anything not on the allow list fails the gate and is labelled
   # for manual review rather than being silently accepted.
-  ALLOWED_LICENCES: "MIT Apache-2.0 BSD-2-Clause BSD-3-Clause 0BSD ISC CC0-1.0 Unlicense Python-2.0 Proprietary"
-  FORBIDDEN_LICENCES: "GPL-2.0 GPL-3.0 AGPL-3.0 LGPL-2.1 LGPL-3.0 MPL-2.0 EPL-1.0 EPL-2.0 CDDL-1.0 SSPL-1.0 BUSL-1.1"
+  ALLOWED_LICENCES: "MIT Apache-2.0 BSD-2-Clause BSD-3-Clause 0BSD ISC CC0-1.0 Unlicense Python-2.0 Proprietary MPL-2.0"
+  FORBIDDEN_LICENCES: "GPL-2.0 GPL-3.0 AGPL-3.0 LGPL-2.1 LGPL-3.0 EPL-1.0 EPL-2.0 CDDL-1.0 SSPL-1.0 BUSL-1.1"
   REVIEW_LABEL: "compliance/licence-review"
 
 jobs:
@@ -411,11 +411,118 @@ jobs:
           exit "${failed}"
 
   # ---------------------------------------------------------------------------
+  # licence-gate-selftest — verifies the licence gate logic works correctly
+  # ---------------------------------------------------------------------------
+  licence-gate-selftest:
+    name: Licence gate self-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Create test fixtures
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/licence-selftest/forbidden /tmp/licence-selftest/clean
+
+          # Forbidden fixture: fake pip-licenses output with AGPL-3.0 package
+          cat > /tmp/licence-selftest/forbidden/python-licences.json <<'JSON'
+          [
+            {"Name": "evil-agpl-pkg", "Version": "1.0.0", "License": "AGPL-3.0"},
+            {"Name": "good-mit-pkg", "Version": "2.0.0", "License": "MIT"}
+          ]
+          JSON
+
+          # Clean fixture: fake pip-licenses output with only allowed licences
+          cat > /tmp/licence-selftest/clean/python-licences.json <<'JSON'
+          [
+            {"Name": "flask", "Version": "3.0.0", "License": "BSD-3-Clause"},
+            {"Name": "requests", "Version": "2.31.0", "License": "Apache-2.0"},
+            {"Name": "terraform-provider-aws", "Version": "5.0.0", "License": "MPL-2.0"}
+          ]
+          JSON
+
+          echo "Fixtures created"
+
+      - name: Self-test — forbidden fixture must FAIL
+        run: |
+          set -uo pipefail
+          cd /tmp/licence-selftest/forbidden
+          python - <<'PY'
+          import json, os, sys
+
+          allowed = set(os.environ["ALLOWED_LICENCES"].split())
+          forbidden = set(os.environ["FORBIDDEN_LICENCES"].split())
+          rows = json.load(open("python-licences.json"))
+          bad = []
+          for r in rows:
+              lic = (r.get("License") or "").strip()
+              name, ver = r.get("Name", "?"), r.get("Version", "?")
+              if not lic or lic in ("UNKNOWN", "(unknown license)"):
+                  continue
+              tokens = lic.replace("/", " ").replace(",", " ").replace(" or ", " ").split()
+              if any(t.strip("()") in forbidden for t in tokens):
+                  bad.append(f"{name}=={ver}: FORBIDDEN licence '{lic}'")
+          if bad:
+              print(f"SELF-TEST PASS: Forbidden fixture correctly detected {len(bad)} forbidden licence(s)")
+              for line in bad:
+                  print(f"  - {line}")
+              sys.exit(0)
+          else:
+              print("SELF-TEST FAIL: Forbidden fixture did not detect any forbidden licences!")
+              print("The licence gate logic is broken — AGPL-3.0 should be forbidden.")
+              sys.exit(1)
+          PY
+
+      - name: Self-test — clean fixture must PASS
+        run: |
+          set -uo pipefail
+          cd /tmp/licence-selftest/clean
+          python - <<'PY'
+          import json, os, sys
+
+          allowed = set(os.environ["ALLOWED_LICENCES"].split())
+          forbidden = set(os.environ["FORBIDDEN_LICENCES"].split())
+          rows = json.load(open("python-licences.json"))
+          bad, review = [], []
+          for r in rows:
+              lic = (r.get("License") or "").strip()
+              name, ver = r.get("Name", "?"), r.get("Version", "?")
+              if not lic or lic in ("UNKNOWN", "(unknown license)"):
+                  review.append(f"{name}=={ver}: unknown")
+                  continue
+              tokens = lic.replace("/", " ").replace(",", " ").replace(" or ", " ").split()
+              if any(t.strip("()") in forbidden for t in tokens):
+                  bad.append(f"{name}=={ver}: FORBIDDEN")
+              elif not any(t.strip("()") in allowed for t in tokens):
+                  review.append(f"{name}=={ver}: unrecognised")
+          if bad:
+              print(f"SELF-TEST FAIL: Clean fixture incorrectly flagged {len(bad)} package(s) as forbidden!")
+              for line in bad:
+                  print(f"  - {line}")
+              sys.exit(1)
+          if review:
+              print(f"SELF-TEST FAIL: Clean fixture has {len(review)} unrecognised licence(s)!")
+              sys.exit(1)
+          print(f"SELF-TEST PASS: Clean fixture correctly passed ({len(rows)} packages, all allowed)")
+          PY
+
+      - name: Clean up fixtures
+        if: always()
+        run: rm -rf /tmp/licence-selftest
+
+  # ---------------------------------------------------------------------------
   # compliance-status — single required check for branch protection
   # ---------------------------------------------------------------------------
   compliance-status:
     name: Compliance status
-    needs: [secrets, licences, governance, action-pinning]
+    needs: [secrets, licences, governance, action-pinning, licence-gate-selftest]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10

@@ -246,19 +246,25 @@ jobs:
           ENDPOINT: ${{ secrets.STATE_BUCKET_ENDPOINT }}
         run: |
           set -euo pipefail
-          placeholder='viavitae-state.example.com'
+          expected_endpoint='minio-state-01.viavitae.internal:9000'
+          old_placeholder='viavitae-state.example.com'
           # A backend block cannot interpolate variables, so the endpoint is the one
           # value in this repository that has to be committed rather than configured.
-          # Failing here says what to do; failing inside the provider is a DNS error
-          # for a domain that does not exist.
-          if grep -qs "$placeholder" "${DIR}/backend.tf"; then
-            echo "::error::${DIR}/backend.tf still contains the placeholder endpoint $placeholder."
-            echo "Replace it with the real S3-compatible endpoint and commit the change. A backend block cannot read a variable, so this cannot be supplied from the Environment."
+          # This assertion verifies the backend points at the self-hosted MinIO
+          # instance (ADR-010), not the old AWS S3 placeholder.
+          if grep -qs "$old_placeholder" "${DIR}/backend.tf"; then
+            echo "::error::${DIR}/backend.tf still contains the old AWS placeholder endpoint $old_placeholder."
+            echo "Update it to point at the self-hosted MinIO instance per ADR-010."
+            exit 1
+          fi
+          if ! grep -qs "$expected_endpoint" "${DIR}/backend.tf"; then
+            echo "::error::${DIR}/backend.tf does not contain the expected MinIO endpoint $expected_endpoint."
+            echo "Verify the backend.tf is configured for the self-hosted MinIO state backend (ADR-010)."
             exit 1
           fi
           case "${ENDPOINT:-}" in
-            *"$placeholder"*|"")
-              echo "::error::STATE_BUCKET_ENDPOINT is unset or still the placeholder. Define it on the GitHub Environment."
+            *"$old_placeholder"*|"")
+              echo "::error::STATE_BUCKET_ENDPOINT is unset or still the old placeholder. Define it on the GitHub Environment."
               exit 1
               ;;
           esac
@@ -449,29 +455,35 @@ jobs:
       PM_SSH_PRIVATE_KEY: ${{ secrets.PM_SSH_PRIVATE_KEY }}
     steps:
       - name: Verify the apply credentials are present
+        # SECURITY: inputs.environment is passed through an env var, not interpolated
+        # directly into the run: block. Direct interpolation would allow an attacker
+        # who controls the workflow_dispatch input to inject shell code (Semgrep
+        # run-shell-injection). The env var makes the value data, not code.
+        env:
+          ENV_NAME: ${{ inputs.environment }}
         run: |
           set -uo pipefail
           missing=0
           # Same environment-conditional set as the plan job, plus the SSH transport
           # that only an apply needs.
           extra="PM_SSH_USERNAME PM_SSH_PRIVATE_KEY"
-          case "${{ inputs.environment }}" in
+          case "$ENV_NAME" in
             staging|prod) extra="$extra PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD TF_VAR_dns_update_key_secret" ;;
           esac
           for v in PM_API_URL PM_API_TOKEN_ID PM_API_TOKEN_SECRET \
                    AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_ENDPOINT_URL_S3 AWS_REGION \
                    $extra; do
             if [ -z "${!v:-}" ]; then
-              echo "::error::${v} is empty. It must be defined as a secret on the '${{ inputs.environment }}-apply' GitHub Environment."
+              echo "::error::${v} is empty. It must be defined as a secret on the '${ENV_NAME}-apply' GitHub Environment."
               missing=1
             fi
           done
           [ "$missing" -eq 0 ] || exit 1
           case "$PM_API_TOKEN_ID" in
             *!plan*|*!ci-plan*)
-              echo "::error::The apply job received the read-only plan token (${PM_API_TOKEN_ID}). The '${{ inputs.environment }}-apply' environment must hold the write token."
+              echo "::error::The apply job received the read-only plan token (${PM_API_TOKEN_ID}). The '${ENV_NAME}-apply' environment must hold the write token."
               exit 1 ;;
-            *) echo "apply token resolved for ${{ inputs.environment }}" ;;
+            *) echo "apply token resolved for $ENV_NAME" ;;
           esac
 
       - name: Check out repository
@@ -674,19 +686,25 @@ jobs:
           ENDPOINT: ${{ secrets.STATE_BUCKET_ENDPOINT }}
         run: |
           set -euo pipefail
-          placeholder='viavitae-state.example.com'
+          expected_endpoint='minio-state-01.viavitae.internal:9000'
+          old_placeholder='viavitae-state.example.com'
           # A backend block cannot interpolate variables, so the endpoint is the one
           # value in this repository that has to be committed rather than configured.
-          # Failing here says what to do; failing inside the provider is a DNS error
-          # for a domain that does not exist.
-          if grep -qs "$placeholder" "${DIR}/backend.tf"; then
-            echo "::error::${DIR}/backend.tf still contains the placeholder endpoint $placeholder."
-            echo "Replace it with the real S3-compatible endpoint and commit the change. A backend block cannot read a variable, so this cannot be supplied from the Environment."
+          # This assertion verifies the backend points at the self-hosted MinIO
+          # instance (ADR-010), not the old AWS S3 placeholder.
+          if grep -qs "$old_placeholder" "${DIR}/backend.tf"; then
+            echo "::error::${DIR}/backend.tf still contains the old AWS placeholder endpoint $old_placeholder."
+            echo "Update it to point at the self-hosted MinIO instance per ADR-010."
+            exit 1
+          fi
+          if ! grep -qs "$expected_endpoint" "${DIR}/backend.tf"; then
+            echo "::error::${DIR}/backend.tf does not contain the expected MinIO endpoint $expected_endpoint."
+            echo "Verify the backend.tf is configured for the self-hosted MinIO state backend (ADR-010)."
             exit 1
           fi
           case "${ENDPOINT:-}" in
-            *"$placeholder"*|"")
-              echo "::error::STATE_BUCKET_ENDPOINT is unset or still the placeholder. Define it on the GitHub Environment."
+            *"$old_placeholder"*|"")
+              echo "::error::STATE_BUCKET_ENDPOINT is unset or still the old placeholder. Define it on the GitHub Environment."
               exit 1
               ;;
           esac
