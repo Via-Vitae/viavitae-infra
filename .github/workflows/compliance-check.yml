@@ -307,7 +307,7 @@ jobs:
             exit 1
           fi
           if ! printf '%s\n' "$effective" | grep -qE '^\*\s+@'; then
-            echo "::error::CODEOWNERS has no '* @team' default rule. Rule R2 requires '*' to resolve to at least @Via-Vitae/architects."
+            echo "::error::CODEOWNERS has no '* @owner' default rule. Rule R2 requires '*' to resolve to a principal with write access to THIS repository; an unresolved owner silently removes a required reviewer. See docs/adr/ADR-000-governance-sole-owner-four-eyes.md."
             exit 1
           fi
           if printf '%s\n' "$effective" | grep -qE '@org/|<OWNER_HANDLE>|@your-org'; then

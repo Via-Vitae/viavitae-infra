@@ -11,9 +11,9 @@ puts users at risk.
 
 | Channel | Detail |
 | --- | --- |
-| **Email** | `security@viavitae.com` |
-| **Encryption** | Strongly encouraged. Our PGP public key is published on the [OpenPGP key servers](https://keys.openpgp.org/search?q=security%40viavitae.com); fetch and verify the fingerprint out of band before first use. |
-| **GitHub** | Private vulnerability reporting is enabled on repositories in the `Via-Vitae` organisation. Use *Security* -> *Report a vulnerability* when available. |
+| **GitHub (primary)** | Private vulnerability reporting is **enabled** on every repository in the `Via-Vitae` organisation. Use *Security* -> *Report a vulnerability*. This opens a draft advisory visible only to repository administrators, so the discussion stays private without needing an email channel. |
+| **Email** | **Not available.** No monitored security mailbox is provisioned, and none is published here: `viavitae.com` is parked (no `A`, no `MX`) and `viavitae.site` has no `MX` record, so mail to either domain is undeliverable. Publishing an address that silently discards reports would break the acknowledgement SLA below while appearing to satisfy it. A monitored address and its PGP public key are added to this table as soon as one exists. |
+| **Encryption** | A draft advisory is readable only by repository administrators, so a proof of concept may be attached directly. If you would rather not attach exploit code to a GitHub advisory at all, say so in the report and we will arrange an alternative before you send it. |
 
 Include as much of the following as you can:
 
@@ -42,9 +42,11 @@ persistent access.
 | **Status update cadence** | At least every 5 business days until closure. |
 | **Researcher notification of fix** | Within 5 business days of deployment. |
 
-If you have not received an acknowledgement within 24 hours, resend to the same address
-and copy `legal@viavitae.com`. Email delivery failures happen, and we would rather receive
-a duplicate than lose a report.
+If you have not received an acknowledgement within 24 hours, submit the report again
+through GitHub private vulnerability reporting and state in the new report that it is a
+resend. A duplicate report is preferable to a lost one. The draft advisory is the only
+channel here with a delivery guarantee, because it is the only one that cannot fail
+silently.
 
 ### Remediation SLA
 
@@ -64,9 +66,13 @@ endpoint, rotating a credential, revoking a token, blocking a route, or taking a
 tenant offline. **Remediation** means the durable fix, with a regression test, merged and
 deployed.
 
-Where a Critical or High issue cannot be remediated within the SLA, the security team
-records the reason, the compensating control and a revised date as an ADR in
-`docs/architecture.md`, and notifies the compliance team.
+Where a Critical or High issue cannot be remediated within the SLA, `@JourneyOfLife`
+records the reason, the compensating control and a revised date as an ADR, and `@IterVitae`
+reviews that record. There is no separate security team to escalate to and no separate
+compliance team to notify: under the sole-owner model in
+[ADR-000](docs/adr/ADR-000-governance-sole-owner-four-eyes.md) one person holds both
+functions, and the compensating control is that the deferral is written down and
+independently reviewed rather than decided verbally.
 
 ## GDPR breach notification workflow
 
@@ -92,8 +98,12 @@ waits for the other.
 6. **Close the loop.** The DPIA for the affected processing is revisited under Article 35(7)
    and, where the breach reveals an architectural weakness, an ADR records the decision.
 
-The DPO (`dpo@viavitae.com`) owns steps 2 to 5. The security team owns technical
-containment and remediation and provides the factual record.
+Steps 2 to 5 and technical containment are owned by the same person, `@JourneyOfLife`, as
+sole proprietor. There is no separate Data Protection Officer mailbox and no separate
+security function to hand these steps to. [ADR-000](docs/adr/ADR-000-governance-sole-owner-four-eyes.md)
+records the accountability model, the conflict of interest this concentration creates
+under Article 38(6), and the trigger at which an external DPO must be contracted.
+`@IterVitae` reviews the breach record as the compensating control.
 
 ## Safe harbour for good-faith research
 
@@ -126,7 +136,7 @@ In scope for reporting under this policy:
 | Scope | Detail |
 | --- | --- |
 | **Repositories** | All repositories in the `Via-Vitae` GitHub organisation, including public, private and internal repositories, their CI/CD configuration, and their build and deployment artefacts. |
-| **Domains and subdomains** | All `*.viavitae.com` hosts, including demo tenant subdomains provisioned by `viavitae-infra` and `viavitae-clients`. |
+| **Domains and subdomains** | Every host that resolves to ViaVitae-operated infrastructure. At the time of writing that is `viavitae.site` and its subdomains, including the demo tenant subdomains provisioned by `viavitae-infra` and `viavitae-clients`. `viavitae.com` is registered but parked (no `A`, no `MX`) and is out of scope until it is pointed at ViaVitae infrastructure; `viavitae.org` resolves to a registrar parking front end. This row is updated in the same change that points a domain, so scope never depends on a hostname hardcoded elsewhere. |
 | **Marketplace** | `jolarca.com` and the `jolarca` repository, including the vendor dashboard and vendor onboarding and KYC flows. |
 | **Infrastructure** | Self-hosted Proxmox, k3s and Terraform-managed resources, where testing is coordinated with us in advance. |
 | **Third parties** | Processors and subprocessors acting on our behalf, where the issue arises from our configuration or use of them. |
@@ -156,9 +166,10 @@ upgrade before reporting a finding that has already been fixed.
 
 | Role | Contact |
 | --- | --- |
-| Security team | `security@viavitae.com` |
-| Data Protection Officer | `dpo@viavitae.com` |
-| Legal | `legal@viavitae.com` |
+| Security function | `@JourneyOfLife`, sole proprietor — through GitHub private vulnerability reporting (see above). |
+| Privacy function | `@JourneyOfLife`, sole proprietor — same channel. Accountability model and its Article 38(6) conflict of interest: [ADR-000](docs/adr/ADR-000-governance-sole-owner-four-eyes.md). |
+| Independent review (four-eyes) | `@IterVitae` — reviews changes and breach records; never commits code. See [ADR-000](docs/adr/ADR-000-governance-sole-owner-four-eyes.md). |
+| Legal | `@JourneyOfLife`, sole proprietor. No monitored legal mailbox is provisioned; see the email row above. |
 
 This policy is reviewed at least annually, and after any Critical severity incident.
 Changes are recorded in `CHANGELOG.md`.

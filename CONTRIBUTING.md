@@ -186,9 +186,16 @@ branch  →  local gates  →  terraform plan  →  PR gates  →  approval  →
 4. **PR gates.** `ci.yml`, `compliance-check.yml` and `codeql.yml` must be green, and the
    plan output for every touched environment must be attached to the description by the
    `plan` job in `deploy.yml`.
-5. **Approval.** One architect, plus `@Via-Vitae/platform` for anything under
-   `terraform/`, `ansible/` or `k8s/`, plus `@Via-Vitae/security` for a change to
-   `k8s/policies/`, `k8s/secrets/`, `backup/` or a firewall rule.
+5. **Approval.** One approving review is required by branch protection, from `@IterVitae` as
+   the independent four-eyes reviewer. `@JourneyOfLife` owns every path in
+   `.github/CODEOWNERS` and, as the author, cannot approve their own pull request. A change
+   to `k8s/policies/`, `k8s/secrets/`, `backup/` or a firewall rule also needs the security
+   reasoning written into the pull request description, because the security function and the
+   author are the same person — see
+   [ADR-000](docs/adr/ADR-000-governance-sole-owner-four-eyes.md). Where `@IterVitae` does
+   not yet hold write access on a repository, their approval cannot satisfy the required
+   count; that gap and its compensating controls are recorded in ADR-000 rather than treated
+   as resolved.
 6. **Merge** by squash. `deploy.yml` then requires a manual approval per environment
    before it applies, in the order `dev` → `staging` → `prod`.
 
@@ -321,15 +328,15 @@ not a penalty; it changes how a reviewer reads the diff.
 
 | Question | Where |
 | --- | --- |
-| Workflow, review, branch or commit rules | This document, then `#engineering` |
-| Architecture or design decisions | The architects, and record the outcome as an ADR |
-| Personal data, DPIA, retention, processors | `dpo@viavitae.com` |
-| Licensing and third-party components | `legal@viavitae.com` |
-| Vulnerabilities and security incidents | `security@viavitae.com` — private, per [SECURITY.md](SECURITY.md) |
+| Workflow, review, branch or commit rules | This document, then [ADR-000](docs/adr/ADR-000-governance-sole-owner-four-eyes.md) |
+| Architecture or design decisions | `@JourneyOfLife`, and record the outcome as an ADR |
+| Personal data, DPIA, retention, processors | `@JourneyOfLife`, privacy function — see the DPO position in [ADR-000](docs/adr/ADR-000-governance-sole-owner-four-eyes.md) |
+| Licensing and third-party components | `@JourneyOfLife` |
+| Vulnerabilities and security incidents | GitHub private vulnerability reporting — private, per [SECURITY.md](SECURITY.md) |
 
 ## Recognition
 
 Contributors are recorded in the release notes generated from their Conventional Commits,
 and in the ADRs they own. Sustained contribution to governance — templates, compliance
-tooling, accessibility and privacy controls — is tracked by the architects and recognised
-in review of CODEOWNERS path ownership.
+tooling, accessibility and privacy controls — is recorded in the ADRs and recognised in
+review of CODEOWNERS path ownership.

@@ -64,11 +64,27 @@ Compare links for each version are maintained at the bottom of this file.
 
 ### Added
 
-_None._
+- `docs/adr/ADR-000-governance-sole-owner-four-eyes.md` — the accountability model for a
+  sole-proprietor organisation: who owns a change, who reviews it, the reviewer's access gap
+  recorded as an accepted risk with six named compensating controls, the GDPR Article 37(1)
+  DPO assessment as an open item with the trigger that makes an external DPO mandatory, and
+  the decision to use GitHub's built-in apps only for automated actors.
+- A **Branch protection** section in `README.md` recording the settings enforced on `main`,
+  the commands that verify them, and the two deliberate deviations: CodeQL is not a required
+  context because its check name is dynamic, and four-eyes review is configured but not yet
+  enforceable.
 
 ### Changed
 
-_None._
+- `.github/CODEOWNERS` — owners changed from the six `@Via-Vitae/*` teams to
+  `@JourneyOfLife @IterVitae`, with the path-scoped rules retained. The header now records
+  why team handles do not resolve in this repository and the command that proves the file is
+  valid, so the defect is not reintroduced by a future edit.
+- `CONTRIBUTING.md` — the approval step and the help table name the accountable people
+  instead of teams that hold no access here and mailboxes that cannot receive mail.
+- `.github/workflows/compliance-check.yml` — the CODEOWNERS gate message no longer names
+  `@Via-Vitae/architects`, which this file does not reference. The gate condition itself is
+  unchanged.
 
 ### Deprecated
 
@@ -76,15 +92,30 @@ _None._
 
 ### Removed
 
-_None._
+- The undeliverable `security@`, `legal@` and `dpo@viavitae.com` addresses from
+  `SECURITY.md` and `CONTRIBUTING.md`, and the `#engineering` escalation channel. Nothing
+  replaces them yet: GitHub private vulnerability reporting is the working channel, and
+  `SECURITY.md` states plainly that no monitored mailbox is provisioned.
 
 ### Fixed
 
-_None._
+- All 34 owner entries in `.github/CODEOWNERS` resolved to `Unknown owner`, because the six
+  organisation teams hold write access only to `viavitae-brand` and none to this repository.
+  With `require_code_owner_reviews` and `enforce_admins` both enabled and no resolvable code
+  owner, no pull request could be merged through its own controls; merges required suspending
+  `enforce_admins`, which disabled the control at the moment it applied.
 
 ### Security
 
-_None._
+- Enabled and verified by read-back on all ten public repositories in the organisation:
+  secret scanning, secret scanning push protection, Dependabot alerts, Dependabot security
+  updates, and private vulnerability reporting. All five were disabled on every repository.
+- `SECURITY.md` asserted that private vulnerability reporting was enabled while the API
+  returned `enabled: false`, and published an email disclosure channel on a domain with no
+  `MX` record — so a researcher following the policy reported into a void and the 24-hour
+  acknowledgement SLA could never start. The claim is now true, the email row states that no
+  deliverable mailbox exists instead of publishing a dead address, and scope is defined by
+  what resolves to ViaVitae infrastructure rather than by a hardcoded domain.
 
 ### Documentation
 
