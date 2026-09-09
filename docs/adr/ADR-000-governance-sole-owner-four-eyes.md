@@ -378,8 +378,14 @@ Outstanding, with owners:
 | --- | --- | --- |
 | Grant `@IterVitae` write access to all ten repositories | `@JourneyOfLife` | Four-eyes enforcement; closing the accepted risk in section 2 |
 | Complete the Art. 37(1) assessment and record the outcome | `@JourneyOfLife` | Any Article 9-scale processing |
-| Provision a monitored security mailbox with a PGP key, or delete the email row permanently | `@JourneyOfLife` | Nothing — GitHub reporting is the working channel |
+| Add MX records for `viavitae.site` and provision `security@viavitae.site` with a PGP key | `@JourneyOfLife` | Email disclosure channel (GitHub reporting remains the working channel until MX is live) |
+| Register an EU self-hosted runner with labels `[self-hosted, linux, x64, eu-infra]` | `@JourneyOfLife` | `security.yml` and `deploy.yml` jobs (currently queue forever with 0 runners) |
 | Add an aggregate `CodeQL status` job before making CodeQL a required check | `@JourneyOfLife` | Adding CodeQL to required status checks |
+
+### Decisions recorded 2026-09-09
+
+- **Mailbox**: `security@viavitae.site` chosen over `viavitae.org` (existing GoDaddy MX) and no-email. Rationale: full control over the domain, matches the domain already in SECURITY.md scope. Owner action: add MX records, create mailbox, publish PGP key.
+- **Runner**: Register EU self-hosted runner now. Rationale: `security.yml` Gate 8 writes `AGE_SECRET_KEY_CI` to the runner (EEA residency constraint per QODER.md Rule 7); GitHub-hosted runners are outside the EEA. Owner action: create VM in Proxmox EU cluster, install runner software, register with org.
 
 ## Break-glass log
 
