@@ -386,6 +386,7 @@ Outstanding, with owners:
 | Date | Action | Reason | Operator |
 |------|--------|--------|----------|
 | 2026-09-09 | Disabled `enforce_admins`, merged PR #5 via `gh pr merge --admin`, restored full protection | Sole-owner bootstrap: CODEOWNERS fix could not be reviewed by a second CODEOWNER because @IterVitae has no write access yet. This is the only PR that establishes the governance model itself; subsequent PRs will be reviewable once @IterVitae is granted access. | @JourneyOfLife |
+| 2026-09-09 | Disabled `enforce_admins`, pushed commit `16b5457` directly to `main`, restored full protection | Factual ADR record appended as part of the break-glass procedure above. Not a governance change; documents what already happened. | @JourneyOfLife |
 
 ## References
 
