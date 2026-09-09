@@ -1,0 +1,300 @@
+# Security gates — viavitae-infra
+#
+# Three gates that together prove the SOPS trust model is intact:
+#
+#   Gate 7  — Recipients allow-list diff. Catches unauthorised key additions
+#             to .sops.yaml. Without this, anyone who can merge can add their
+#             own age key and the round-trip test still passes.
+#
+#   Gate 8  — Real round-trip. Encrypts using the repo's actual .sops.yaml
+#             recipients, decrypts with the CI age key (AGE_SECRET_KEY_CI).
+#             Proves the CI key corresponds to a published recipient and the
+#             full encrypt/decrypt chain works against real trust anchors.
+#
+#   Binary smoke — Non-gating. Encrypts with a throwaway identity to prove
+#                  the sops binary itself works. Catches toolchain breakage
+#                  without depending on real key material.
+#
+# Until Gate 7 is complete (real recipients in .sops.yaml + allowlist) and
+# AGE_SECRET_KEY_CI is set, the Gate 8 job fails by design. This is correct:
+# a round-trip that does not exercise real recipients is theater, not a gate.
+
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly verification that the SOPS pipeline still works.
+    - cron: "30 5 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # SHA-256 checksums — verify from release pages
+  TERRAFORM_SHA256: "745d33b4b02b7980c62a38ec1beea24ee084ea8caf3f503c200554bd9a0cbe49"
+  SOPS_VERSION: "3.13.3"
+  SOPS_SHA256: "e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b"
+  AGE_VERSION: "1.2.0"
+  AGE_SHA256: "2ae71cb3ea761118937a944083f057cfd42f0ef11d197ce72fc2b8780d50c4ef"
+
+jobs:
+  # ===========================================================================
+  # GATE 7 — Recipients allow-list diff
+  # ===========================================================================
+  # Extracts the age: values from .sops.yaml and diffs them against the
+  # committed allow-list. A mismatch means someone changed .sops.yaml without
+  # updating the allow-list, which is either an unauthorised key addition or
+  # a forgotten allow-list update. Either way, the PR must not merge.
+  gate-7-recipients:
+    name: Gate 7 — recipients
+    runs-on: [self-hosted, linux, x64, eu-infra]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Diff recipients against allow-list
+        run: |
+          set -euo pipefail
+
+          # Extract age: values from .sops.yaml (strip key name, whitespace, comments)
+          grep '^\s*age:' .sops.yaml \
+            | sed 's/.*age:\s*//' \
+            | sed 's/[[:space:]]*$//' \
+            | sort \
+            > /tmp/sops-yaml-recipients.txt
+
+          # Extract age values from the allow-list (strip comments, blanks, whitespace)
+          grep -v '^\s*#' .sops-recipients.allowlist \
+            | grep -v '^\s*$' \
+            | sed 's/[[:space:]]*$//' \
+            | sort \
+            > /tmp/allowlist-recipients.txt
+
+          # Diff
+          if ! diff -u /tmp/allowlist-recipients.txt /tmp/sops-yaml-recipients.txt; then
+            echo "::error::Gate 7 FAILED: .sops.yaml recipients do not match .sops-recipients.allowlist"
+            echo "::error::If this is an intentional key change, update .sops-recipients.allowlist in the same PR."
+            echo "::error::If this is unexpected, someone may have added an unauthorised recipient."
+            exit 1
+          fi
+
+          echo "Gate 7 PASSED: .sops.yaml recipients match the allow-list."
+
+  # ===========================================================================
+  # GATE 8 — Real round-trip (encrypt with repo recipients, decrypt with CI key)
+  # ===========================================================================
+  # Encrypts a known plaintext using the repo's actual .sops.yaml (which means
+  # encrypting to the published age recipients), then decrypts with the CI age
+  # key from GitHub secrets. This proves:
+  #   1. The CI key (AGE_SECRET_KEY_CI) corresponds to a published recipient
+  #   2. SOPS can encrypt to the repo's real trust anchors
+  #   3. The full chain from .sops.yaml → encrypt → decrypt works
+  #
+  # PREREQUISITES (not yet met):
+  #   - Real age recipients in .sops.yaml (Gate 7 complete)
+  #   - AGE_SECRET_KEY_CI set in GitHub repo secrets
+  #   Until both are true, this job fails by design.
+  gate-8-round-trip:
+    name: Gate 8 — real round-trip
+    needs: gate-7-recipients
+    runs-on: [self-hosted, linux, x64, eu-infra]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install age and SOPS
+        run: |
+          curl -fsSL "https://dl.filippo.io/age/v${AGE_VERSION}?for=linux/amd64" -o age.tar.gz
+          tar -xzf age.tar.gz && mv age/age age/age-keygen /usr/local/bin/ && rm -rf age age.tar.gz
+          curl -fsSL "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64" -o /usr/local/bin/sops
+          chmod +x /usr/local/bin/sops
+
+      - name: Check prerequisites
+        run: |
+          # Fail clearly if prerequisites are not met, rather than producing a
+          # confusing SOPS error about invalid keys.
+          if grep -q 'placeholder' .sops.yaml; then
+            echo "::error::Gate 8 cannot run: .sops.yaml still contains placeholder age keys."
+            echo "::error::Complete Gate 7 first (replace placeholders with real operator keys)."
+            exit 1
+          fi
+
+          if [[ -z "${AGE_SECRET_KEY_CI:-}" ]]; then
+            echo "::error::Gate 8 cannot run: AGE_SECRET_KEY_CI is not set in GitHub secrets."
+            echo "::error::Add the CI age private key to the repository secrets."
+            exit 1
+          fi
+
+      - name: Encrypt with repo recipients, decrypt with CI key
+        env:
+          AGE_SECRET_KEY_CI: ${{ secrets.AGE_SECRET_KEY_CI }}
+        run: |
+          set -euo pipefail
+
+          # Write the CI key to a temporary file (SOPS_AGE_KEY_FILE expects a file)
+          CI_KEY_FILE=$(mktemp)
+          chmod 600 "$CI_KEY_FILE"
+          echo "$AGE_SECRET_KEY_CI" > "$CI_KEY_FILE"
+
+          # Create a test plaintext file at a SOPS-governed path
+          TEST_DIR=$(mktemp -d)
+          mkdir -p "$TEST_DIR/ansible/inventories/prod/group_vars"
+          PLAINTEXT="$TEST_DIR/ansible/inventories/prod/group_vars/vault.sops.yml"
+
+          # Write known plaintext with deterministic content
+          cat > "$PLAINTEXT" <<'EOF'
+          gate8_test: true
+          round_trip_key: round_trip_value
+          nested:
+            ci_verification: passed
+          list:
+            - one
+            - two
+          EOF
+
+          # Copy the repo's .sops.yaml into the test dir so SOPS uses the real recipients
+          cp .sops.yaml "$TEST_DIR/.sops.yaml"
+
+          # Encrypt using the repo's actual .sops.yaml (encrypts to published recipients)
+          if ! sops --config "$TEST_DIR/.sops.yaml" -e "$PLAINTEXT" > "${PLAINTEXT}.enc" 2>sops-encrypt-error.txt; then
+            echo "::error::Gate 8 FAILED: SOPS encryption with repo recipients failed:"
+            cat sops-encrypt-error.txt
+            rm -rf "$TEST_DIR" "$CI_KEY_FILE"
+            exit 1
+          fi
+
+          # Verify the file is actually encrypted
+          if grep -q 'round_trip_value' "${PLAINTEXT}.enc"; then
+            echo "::error::Gate 8 FAILED: encrypted file still contains plaintext"
+            rm -rf "$TEST_DIR" "$CI_KEY_FILE"
+            exit 1
+          fi
+
+          # Decrypt with the CI key
+          if ! SOPS_AGE_KEY_FILE="$CI_KEY_FILE" sops --config "$TEST_DIR/.sops.yaml" \
+              -d "${PLAINTEXT}.enc" > "${PLAINTEXT}.dec" 2>sops-decrypt-error.txt; then
+            echo "::error::Gate 8 FAILED: SOPS decryption with CI key failed:"
+            cat sops-decrypt-error.txt
+            echo "::error::The CI age key (AGE_SECRET_KEY_CI) does not match any recipient in .sops.yaml."
+            rm -rf "$TEST_DIR" "$CI_KEY_FILE"
+            exit 1
+          fi
+
+          # Compare
+          if ! diff -q "$PLAINTEXT" "${PLAINTEXT}.dec" > /dev/null 2>&1; then
+            echo "::error::Gate 8 FAILED: decrypted content does not match original"
+            echo "--- expected ---"
+            cat "$PLAINTEXT"
+            echo "--- got ---"
+            cat "${PLAINTEXT}.dec"
+            rm -rf "$TEST_DIR" "$CI_KEY_FILE"
+            exit 1
+          fi
+
+          echo "Gate 8 PASSED: encrypt with repo recipients → decrypt with CI key → content matches."
+          rm -rf "$TEST_DIR" "$CI_KEY_FILE"
+
+  # ===========================================================================
+  # BINARY SMOKE TEST — non-gating (continue-on-error: true)
+  # ===========================================================================
+  # Encrypts with a throwaway identity to prove the sops binary itself works.
+  # This does NOT exercise the repo's trust model — that is Gate 8's job.
+  # This catches toolchain breakage (bad SOPS version, age incompatibility)
+  # even before real keys are provisioned.
+  binary-smoke-test:
+    name: SOPS binary smoke
+    runs-on: [self-hosted, linux, x64, eu-infra]
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install age and SOPS
+        run: |
+          curl -fsSL "https://dl.filippo.io/age/v${AGE_VERSION}?for=linux/amd64" -o age.tar.gz
+          tar -xzf age.tar.gz && mv age/age age/age-keygen /usr/local/bin/ && rm -rf age age.tar.gz
+          curl -fsSL "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64" -o /usr/local/bin/sops
+          chmod +x /usr/local/bin/sops
+
+      - name: Ephemeral-key round-trip
+        run: |
+          set -euo pipefail
+
+          # Generate a throwaway identity
+          age-keygen -o /tmp/smoke-test-key.txt 2>&1
+          TEST_PUBKEY=$(grep '^# public key:' /tmp/smoke-test-key.txt | awk '{print $4}')
+
+          TEST_DIR=$(mktemp -d)
+          PLAINTEXT="$TEST_DIR/test.yaml"
+          cat > "$PLAINTEXT" <<'EOF'
+          smoke_test: true
+          value: ephemeral
+          EOF
+
+          # Create a throwaway .sops.yaml
+          cat > "$TEST_DIR/.sops.yaml" <<SOPSEOF
+          creation_rules:
+            - path_regex: .*\\.yaml$
+              age: "$TEST_PUBKEY"
+          SOPSEOF
+
+          # Encrypt
+          SOPS_AGE_KEY_FILE=/tmp/smoke-test-key.txt sops --config "$TEST_DIR/.sops.yaml" \
+            -e "$PLAINTEXT" > "${PLAINTEXT}.enc"
+
+          # Decrypt
+          SOPS_AGE_KEY_FILE=/tmp/smoke-test-key.txt sops --config "$TEST_DIR/.sops.yaml" \
+            -d "${PLAINTEXT}.enc" > "${PLAINTEXT}.dec"
+
+          # Compare
+          diff -q "$PLAINTEXT" "${PLAINTEXT}.dec"
+
+          echo "Binary smoke test PASSED: sops encrypt/decrypt with ephemeral key works."
+          rm -rf "$TEST_DIR" /tmp/smoke-test-key.txt
+
+  # ===========================================================================
+  # ENCRYPTION COVERAGE — verifies SOPS-governed files are actually encrypted
+  # ===========================================================================
+  encryption-coverage:
+    name: Encryption coverage
+    needs: gate-7-recipients
+    runs-on: [self-hosted, linux, x64, eu-infra]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Check that SOPS-governed files are encrypted
+        run: |
+          ERRORS=0
+
+          # Check ansible vault files
+          for f in $(find ansible/inventories -name 'vault.sops.yml' 2>/dev/null); do
+            if ! grep -q 'sops:' "$f" 2>/dev/null; then
+              echo "::error::$f matches a SOPS creation rule but is not encrypted"
+              ERRORS=$((ERRORS + 1))
+            fi
+          done
+
+          # Check k8s secret files
+          for f in $(find k8s/secrets -name '*.sops.yaml' 2>/dev/null); do
+            if ! grep -q 'sops:' "$f" 2>/dev/null; then
+              echo "::error::$f matches a SOPS creation rule but is not encrypted"
+              ERRORS=$((ERRORS + 1))
+            fi
+          done
+
+          # Check terraform secret var files
+          for f in $(find terraform -name '*.sops.tfvars' 2>/dev/null); do
+            if ! grep -q 'sops:' "$f" 2>/dev/null; then
+              echo "::error::$f matches a SOPS creation rule but is not encrypted"
+              ERRORS=$((ERRORS + 1))
+            fi
+          done
+
+          if [[ $ERRORS -gt 0 ]]; then
+            echo "::error::$ERRORS file(s) should be encrypted but are plaintext"
+            exit 1
+          fi
+
+          echo "All SOPS-governed files are encrypted."
