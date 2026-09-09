@@ -173,6 +173,11 @@ k6-summary.json
 !.vscode/settings.json
 !.vscode/extensions.json
 !.vscode/launch.json
+# Qoder regenerates .qoder/repowiki and .qoder/knowledge from the working tree on
+# every indexing run. The output is derived, not authored: committing it would put
+# 200+ machine-generated files under review and they would drift from the code they
+# describe on the next run. Human-written guidance lives in QODER.md, which IS tracked.
+.qoder/
 *.swp
 *.swo
 *~

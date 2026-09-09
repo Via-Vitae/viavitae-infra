@@ -1,37 +1,60 @@
 # CODEOWNERS — viavitae-infra ownership mapping
 #
-# Rule R2: This file is never empty. The '*' rule always resolves to at least
-# @Via-Vitae/platform. Changes that remove owners or widen '*' require
-# approval from @Via-Vitae/compliance.
+# Sole-owner model. Four-eyes review is enforced through branch protection
+# (required approving reviewer: @IterVitae), not through multi-team CODEOWNERS.
+#
+# WHY USER HANDLES AND NOT TEAMS — read before editing this file
+#   Every owner named here must resolve. GitHub rejects a CODEOWNERS principal
+#   that does not exist or that lacks write access to THIS repository, and an
+#   unresolved owner silently removes a required reviewer while the file still
+#   looks authoritative. The six organisation teams (architects, platform,
+#   security, compliance, dpo, legal) do exist, but they are 'closed' and are
+#   granted access only to viavitae-brand, so all 34 rules that named them
+#   resolved to 'Unknown owner' here. '@Via-Vitae' on its own is an organisation
+#   handle, which is not a valid principal either. Do not reintroduce either form.
+#   Verify after any change — this must report zero errors:
+#     gh api repos/Via-Vitae/viavitae-infra/codeowners/errors
+#
+# RESIDUAL RISK — see docs/adr/ADR-000-governance-sole-owner-four-eyes.md
+#   @IterVitae is named as the independent reviewer but currently has no access
+#   to this repository, so GitHub still reports those entries as unknown and an
+#   approval from @IterVitae cannot satisfy the required-review count. Until
+#   @IterVitae holds write access, four-eyes review is documented but not
+#   mechanically enforceable. That gap is recorded as an accepted risk in
+#   ADR-000 rather than papered over here.
+#
+# The path rules below all resolve to the same two handles today. They are kept
+# because they record which paths are security- and privacy-sensitive, and so that
+# review routing already exists when a second reviewer with write access arrives.
 
 # --- Default owner -----------------------------------------------------------
-*                                       @Via-Vitae/platform
+*                                       @JourneyOfLife @IterVitae
 
 # --- Platform: CI/CD and workflows ------------------------------------------
-/.github/                               @Via-Vitae/platform @Via-Vitae/architects
-/.github/workflows/                     @Via-Vitae/platform @Via-Vitae/security
-/.github/CODEOWNERS                     @Via-Vitae/platform @Via-Vitae/compliance
-/.github/dependabot.yml                 @Via-Vitae/platform
+/.github/                               @JourneyOfLife @IterVitae
+/.github/workflows/                     @JourneyOfLife @IterVitae
+/.github/CODEOWNERS                     @JourneyOfLife @IterVitae
+/.github/dependabot.yml                 @JourneyOfLife @IterVitae
 
 # --- Infrastructure source (all IaC is security-sensitive) ------------------
-/terraform/                             @Via-Vitae/platform @Via-Vitae/security
-/ansible/                               @Via-Vitae/platform @Via-Vitae/security
-/k8s/                                   @Via-Vitae/platform @Via-Vitae/security
-/.sops.yaml                             @Via-Vitae/platform @Via-Vitae/security
+/terraform/                             @JourneyOfLife @IterVitae
+/ansible/                               @JourneyOfLife @IterVitae
+/k8s/                                   @JourneyOfLife @IterVitae
+/.sops.yaml                             @JourneyOfLife @IterVitae
 
 # --- Monitoring and backup ---------------------------------------------------
-/monitoring/                            @Via-Vitae/platform
-/backup/                                @Via-Vitae/platform @Via-Vitae/security
+/monitoring/                            @JourneyOfLife @IterVitae
+/backup/                                @JourneyOfLife @IterVitae
 
 # --- Compliance and privacy --------------------------------------------------
-/docs/                                  @Via-Vitae/platform @Via-Vitae/compliance
-/docs/DPIA-*.md                         @Via-Vitae/compliance @Via-Vitae/dpo
-/docs/architecture.md                   @Via-Vitae/platform @Via-Vitae/compliance
+/docs/                                  @JourneyOfLife @IterVitae
+/docs/DPIA-*.md                         @JourneyOfLife @IterVitae
+/docs/architecture.md                   @JourneyOfLife @IterVitae
 
 # --- Legal and policy --------------------------------------------------------
-/LICENSE                                @Via-Vitae/legal @Via-Vitae/platform
-/SECURITY.md                            @Via-Vitae/security @Via-Vitae/legal
-/CONTRIBUTING.md                        @Via-Vitae/platform
-/QODER.md                               @Via-Vitae/platform @Via-Vitae/security
-/CHANGELOG.md                           @Via-Vitae/platform
-/README.md                              @Via-Vitae/platform
+/LICENSE                                @JourneyOfLife @IterVitae
+/SECURITY.md                            @JourneyOfLife @IterVitae
+/CONTRIBUTING.md                        @JourneyOfLife @IterVitae
+/QODER.md                               @JourneyOfLife @IterVitae
+/CHANGELOG.md                           @JourneyOfLife @IterVitae
+/README.md                              @JourneyOfLife @IterVitae
