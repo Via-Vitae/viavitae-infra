@@ -24,6 +24,16 @@ name: CodeQL
 #   Workflow default is `contents: read`. Only the `analyze` job escalates, to
 #   `security-events: write` for SARIF upload and `actions: read` because CodeQL
 #   inspects the workflow run. No other scope is granted.
+#
+# STABLE REQUIRED-CHECK NAME
+#   The `analyze` job's check name is `Analyze (<language>)`, and <language> is a
+#   matrix value: add or remove a language and the context name changes. A branch
+#   protection rule that required `Analyze (python)` would silently stop blocking the
+#   moment python left the matrix, because a required context that never reports is a
+#   gate that is open, not closed. The `codeql-status` job at the bottom of this file
+#   publishes a language-independent `CodeQL status` context that aggregates every
+#   analyze leg; that is the name to add to required status checks, and it is stable
+#   across language changes.
 
 on:
   push:
@@ -160,3 +170,31 @@ jobs:
           path: sarif-results/
           if-no-files-found: ignore
           retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # codeql-status — single stable-named required check for branch protection
+  # ---------------------------------------------------------------------------
+  # Aggregates every `Analyze (<language>)` leg into one language-independent
+  # context so branch protection can require `CodeQL status` without the required
+  # name drifting when the language matrix changes (see the header note). A failed
+  # or cancelled leg fails this job; a leg that never entered the matrix is simply
+  # absent, not a failure.
+  codeql-status:
+    name: CodeQL status
+    needs: [detect, analyze]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Evaluate CodeQL gates
+        run: |
+          set -euo pipefail
+          results='${{ toJSON(needs) }}'
+          failed=$(printf '%s' "$results" | grep -o '"result":"failure"' | wc -l || true)
+          cancelled=$(printf '%s' "$results" | grep -o '"result":"cancelled"' | wc -l || true)
+          printf '%s' "$results" | grep -o '"[a-z-]*":{"result":"[a-z]*"' || true
+          if [ "$failed" -ne 0 ] || [ "$cancelled" -ne 0 ]; then
+            echo "::error::CodeQL failed: ${failed} job(s) failed, ${cancelled} cancelled."
+            exit 1
+          fi
+          echo "All CodeQL analyze legs passed or were legitimately skipped."
