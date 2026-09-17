@@ -1,0 +1,52 @@
+---
+# Defaults for the github-runner role.
+#
+# What is NOT here: the runner version and its SHA-256. Those are set in
+# `group_vars/ci_runner.yml` per environment, because a pinned binary is a decision
+# somebody made and reviewed, and a role default is the mechanism by which a version
+# nobody chose ends up running on the machine that holds the age private key (ADR-000,
+# "Runner"; DPIA INFRA-001 R5 rates a runner compromise High *because* of what a
+# runner can reach). The registration token is not here either — it comes from
+# `group_vars/vault.sops.yml`, decrypted by community.sops.
+
+# Where this runner registers. ADR-000 records the decision as "register with org", so
+# one pool serves every repository that selects `[self-hosted, linux, x64, eu-infra]`;
+# a per-repository runner would need twenty registrations to do one job.
+github_runner_url: "https://github.com/Via-Vitae"
+
+# Unprivileged account the runner service runs as. Never root: a workflow step is
+# arbitrary code from a pull request, and it should not land on a root shell if the
+# sandbox is escaped. The service is installed with the runner's own `svc.sh`, which
+# writes a systemd unit bound to this user.
+github_runner_user: runner
+github_runner_group: runner
+
+github_runner_install_dir: /opt/actions-runner
+github_runner_work_dir: /opt/actions-runner/_work
+
+# The token that authorises one new registration. An ephemeral registration token,
+# minted at the target and valid for one hour and a limited number of uses; it is not
+# the credential a running job holds, which is a short-lived per-job JWT the runner
+# requests itself. `github_runner_registration_token` is the SOPS-encrypted value in
+# group_vars/vault.sops.yml.
+github_runner_reg_token: "{{ github_runner_registration_token }}"
+
+# Labels are read from /etc/viavitae/runner-labels, which Terraform wrote at first
+# boot (terraform/envs/prod/main.tf, module "prod_runner"). This role deliberately has
+# no label default: two copies of a label list is one too many, and the workflow
+# selects on `vars.RUNNER_LABELS`, so preflight.sh compares the repository variable
+# against the file on the machine and this role refuses to invent a third value.
+
+# Packages the runner process and its most common job steps need. Kept short: the
+# toolchains a job uses (Terraform, k6, Trivy, helm, python) are pulled per job into
+# the workspace by the workflow, not baked into the host, so a compromised job cannot
+# reach a persistent tool it did not install.
+github_runner_packages:
+  - ca-certificates
+  - curl
+  - git
+  - gnupg
+  - jq
+  - liblttng-ust1
+  - libssl3
+  - tzdata

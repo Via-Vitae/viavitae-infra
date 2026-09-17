@@ -1,0 +1,201 @@
+---
+# Install the pinned GitHub Actions runner and register it with the Via-Vitae
+# organisation so the [self-hosted, linux, x64, eu-infra] jobs in security.yml and
+# deploy.yml have somewhere to run. Until this role has run, `gh api
+# .../actions/runners` reports zero and every one of those jobs queues forever (ADR-000
+# "Runner"); the workflow files being green-by-absence is exactly the trap the memory
+# of a passing check hides.
+#
+# This role installs the runner *binary* only. The job toolchains (terraform, sops,
+# age, k6, trivy, helm) are fetched per job by the workflows themselves and are pinned
+# by SHA-256 in those workflow files, so nothing here has to track their versions and a
+# workspace left behind by a job is disposable by design.
+
+- name: Assert the platform is the one this role was written for
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == "Debian"
+      - ansible_distribution_major_version == "12"
+    fail_msg: >-
+      {{ inventory_hostname }} runs {{ ansible_distribution }}
+      {{ ansible_distribution_major_version }}. The pinned runner asset here is the
+      linux-x64 build for Debian 12; a different release needs its own checksum.
+
+- name: Require a pinned runner version
+  ansible.builtin.assert:
+    that:
+      - github_runner_version is defined
+      - github_runner_version is match('^[0-9]+\\.[0-9]+\\.[0-9]+$')
+    fail_msg: >-
+      github_runner_version must be set in group_vars/ci_runner.yml to a specific
+      actions/runner release such as 2.325.0. There is no default on purpose: "latest"
+      on the machine that will hold the age private key is not a version anybody chose.
+
+- name: Require a pinned runner checksum
+  ansible.builtin.assert:
+    that:
+      - github_runner_checksum is defined
+      - github_runner_checksum is match('^[0-9a-f]{64}$')
+    fail_msg: >-
+      github_runner_checksum must be set in group_vars/ci_runner.yml to the 64-hex
+      SHA-256 published for actions-runner v{{ github_runner_version | default('x') }}.
+      Downloading a binary and trusting it without verifying the digest is `curl | sh`
+      wearing an Ansible module.
+
+- name: Read the labels Terraform wrote at first boot
+  ansible.builtin.slurp:
+    src: /etc/viavitae/runner-labels
+  register: runner_labels_file
+
+- name: Use the declared labels
+  ansible.builtin.set_fact:
+    github_runner_labels: "{{ runner_labels_file.content | b64decode | trim }}"
+
+- name: Refuse to register on a host Terraform did not label
+  ansible.builtin.assert:
+    that:
+      - github_runner_labels | length > 0
+    fail_msg: >-
+      /etc/viavitae/runner-labels is empty on {{ inventory_hostname }}. Terraform
+      (module "prod_runner") writes it; registering without the eu-infra label would
+      create a runner the workflows never select, so the gates stay queued and the
+      cause looks like a missing runner rather than a mislabelled one.
+
+- name: Derive the organisation slug from the registration URL
+  ansible.builtin.set_fact:
+    github_runner_org: "{{ github_runner_url | regex_replace('/$', '') | basename }}"
+
+- name: Set the runner node name and the systemd unit svc.sh will create
+  ansible.builtin.set_fact:
+    github_runner_name: "{{ github_runner_name | default(inventory_hostname) }}"
+    github_runner_service_name: "actions.runner.{{ github_runner_org }}.{{ inventory_hostname }}.service"
+
+- name: Install the packages the runner and its job steps expect
+  ansible.builtin.apt:
+    name: "{{ github_runner_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: "{{ apt_cache_valid_time | default(3600) }}"
+
+- name: Create the runner group
+  ansible.builtin.group:
+    name: "{{ github_runner_group }}"
+    system: true
+    state: present
+
+- name: Create the runner user
+  ansible.builtin.user:
+    name: "{{ github_runner_user }}"
+    group: "{{ github_runner_group }}"
+    system: true
+    home: "{{ github_runner_install_dir }}"
+    shell: /usr/sbin/nologin
+    create_home: true
+    state: present
+
+- name: Ensure the installation and work directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_group }}"
+    mode: "0755"
+  loop:
+    - "{{ github_runner_install_dir }}"
+    - "{{ github_runner_work_dir }}"
+
+- name: Download the pinned runner tarball
+  ansible.builtin.get_url:
+    url: "https://github.com/actions/runner/releases/download/v{{ github_runner_version }}/actions-runner-linux-x64-{{ github_runner_version }}.tar.gz"
+    dest: "/tmp/actions-runner-linux-x64-{{ github_runner_version }}.tar.gz"
+    # Verifying against a digest supplied in reviewed inventory, not one fetched from
+    # the same URL as the payload — the same reasoning as roles/k3s.
+    checksum: "sha256:{{ github_runner_checksum }}"
+    mode: "0644"
+  register: runner_download
+  retries: 3
+  delay: 5
+  until: runner_download is succeeded
+
+- name: Extract the runner into the installation directory
+  ansible.builtin.unarchive:
+    src: "/tmp/actions-runner-linux-x64-{{ github_runner_version }}.tar.gz"
+    dest: "{{ github_runner_install_dir }}"
+    remote_src: true
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_group }}"
+    extra_opts: [--no-same-owner]
+    # Extract once, never in place. A runner is stateless and "replaceable in
+    # minutes" (terraform module "prod_runner"), so a version bump is applied by
+    # rebuilding the guest, not by re-extracting binaries under a running job — which
+    # would corrupt the live workspace. `creates` on runsvc.sh is what encodes that:
+    # the extraction is a no-op on every converge after the first, and the runner
+    # never stomps itself mid-job.
+    creates: "{{ github_runner_install_dir }}/bin/runsvc.sh"
+  notify: Restart actions runner
+
+- name: Ensure ownership after extraction
+  ansible.builtin.file:
+    path: "{{ github_runner_install_dir }}"
+    state: directory
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_group }}"
+    recurse: true
+
+- name: Check for an existing registration
+  ansible.builtin.stat:
+    path: "{{ github_runner_install_dir }}/.runner"
+  become_user: "{{ github_runner_user }}"
+  register: runner_configured
+
+- name: Register the runner with the organisation
+  ansible.builtin.command:
+    cmd: >-
+      ./config.sh --url {{ github_runner_url }}
+      --token {{ github_runner_reg_token | quote }}
+      --labels {{ github_runner_labels | quote }}
+      --name {{ inventory_hostname | quote }}
+      --work {{ github_runner_work_dir | quote }}
+      --unattended --replace
+    chdir: "{{ github_runner_install_dir }}"
+  become_user: "{{ github_runner_user }}"
+  no_log: true
+  when:
+    - not runner_configured.stat.exists or github_runner_force_register | default(false) | bool
+  register: runner_register
+  changed_when: runner_register.rc == 0
+  notify: Restart actions runner
+
+- name: Install the runner systemd service via svc.sh
+  ansible.builtin.command:
+    cmd: "./svc.sh install {{ github_runner_user }}"
+    chdir: "{{ github_runner_install_dir }}"
+  when: not ansible_check_mode
+  register: runner_svc_install
+  changed_when: "'installed' in runner_svc_install.stdout | default('')"
+  notify:
+    - Reload systemd
+    - Restart actions runner
+
+- name: Remove the downloaded tarball
+  ansible.builtin.file:
+    path: "/tmp/actions-runner-linux-x64-{{ github_runner_version }}.tar.gz"
+    state: absent
+
+- name: Ensure the runner service is enabled and running
+  ansible.builtin.systemd_service:
+    name: "{{ github_runner_service_name }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+  when: not ansible_check_mode
+
+- name: Report the runner that is now registered
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }}: actions-runner {{ github_runner_version }} registered to
+      {{ github_runner_url }} as '{{ inventory_hostname }}' with labels
+      [{{ github_runner_labels }}]. Verify with `gh api
+      repos/Via-Vitae/viavitae-infra/actions/runners --jq .total_count` (org pool:
+      orgs/Via-Vitae/actions/runners) — a green converge is not proof a runner checked
+      in, only that config.sh exited zero.
