@@ -1,0 +1,47 @@
+---
+# Install and register the EU self-hosted GitHub Actions runners.
+#
+# Creates the [self-hosted, linux, x64, eu-infra] execution target that ADR-000 and
+# ADR-008 require. Without it, the SOPS/age gates in security.yml and the Terraform
+# Plan/Apply jobs in deploy.yml — every job that must not run on GitHub-hosted compute
+# because it touches the age private key or a Proxmox API token — queue forever and
+# never execute. The runners (runner-01, runner-02) are on the `mgmt` VLAN, where rule
+# X11 denies every other VLAN inbound, which is what makes a compromised runner
+# survivable (DPIA R5).
+#
+#   ansible-playbook -i inventories/prod/hosts.yml --limit ci_runner playbooks/runner.yml
+#
+# Always with `--check --diff` first. `serial: 1` registers one runner at a time: two
+# hosts sharing one ephemeral registration token race for its limited use count, and
+# the loser fails with a registration error that looks like a network fault.
+#
+# The pinned version and its SHA-256 come from group_vars/ci_runner.yml and the
+# registration token from vault.sops.yml. Mint a fresh token before each run —
+# they expire about an hour after creation (see roles/github-runner/README.md).
+
+- name: Install and register the EU CI runners
+  hosts: ci_runner
+  become: true
+  gather_facts: true
+  serial: 1
+
+  pre_tasks:
+    - name: Read the labels Terraform declared for this host
+      ansible.builtin.slurp:
+        src: /etc/viavitae/runner-labels
+      register: runner_labels_file
+
+    - name: Fail on a host Terraform did not describe
+      ansible.builtin.assert:
+        that:
+          - (runner_labels_file.content | b64decode | trim) is search('eu-infra')
+        fail_msg: >-
+          /etc/viavitae/runner-labels on {{ inventory_hostname }} does not carry
+          `eu-infra`. Every gated job selects on that label; a runner registered
+          without it is invisible to the workflows, so the gates keep queueing and the
+          symptom looks like a missing runner rather than a mislabelled host. This file
+          is written by terraform/envs/prod/main.tf (module "prod_runner"); reconcile
+          the inventory against those outputs before running this play.
+
+  roles:
+    - role: github-runner

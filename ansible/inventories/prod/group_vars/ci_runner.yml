@@ -1,0 +1,27 @@
+---
+# Group variables for `ci_runner` (runner-01, runner-02) in `prod`.
+#
+# These are the two supply-chain pins the github-runner role refuses to default. They
+# are committed here rather than in the role so that changing a runner version is a
+# reviewed diff in `all.yml`-class plaintext, visible to whoever opens the pull request,
+# and not something a role silently decided.
+#
+# The values are intentionally EMPTY. The role's assertions fail with an explicit
+# message until a human fills them, because pinning a binary is a decision: set
+# `github_runner_version` to a specific actions/runner release, then set
+# `github_runner_checksum` to the SHA-256 GitHub publishes for
+# `actions-runner-linux-x64-<version>.tar.gz` on that release. Verify the digest
+# against the release page — do not paste a value fetched from the same request as the
+# binary, and never paste a placeholder: `get_url` will then reject a good download or,
+# worse, accept a bad one.
+
+# e.g. "2.325.0"
+github_runner_version: ""
+
+# 64-hex SHA-256 of actions-runner-linux-x64-<version>.tar.gz for the version above.
+github_runner_checksum: ""
+
+# Register with the organisation so one pool serves every repository that selects the
+# label (ADR-000 "register with org"). Overridden here from the role default only to
+# make the prod target explicit at the inventory.
+github_runner_url: "https://github.com/Via-Vitae"

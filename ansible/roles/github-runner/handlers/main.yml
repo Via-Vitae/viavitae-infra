@@ -1,0 +1,21 @@
+---
+# Handlers for the github-runner role.
+#
+# The service unit is the one the runner's own `svc.sh install` writes — name
+# `actions.runner.<org>.<machine>.service`. It is managed through `systemctl` rather
+# than a template unit because the runner expects to own its own unit, and a unit
+# this role wrote would drift from what `svc.sh` repairs on upgrade.
+
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Restart actions runner
+  ansible.builtin.systemd_service:
+    name: "{{ github_runner_service_name }}"
+    state: restarted
+    # A runner that restarts into a registration the target no longer knows about is
+    # a runner that sits idle forever with a green service. `enabled` keeps it across
+    # a reboot; the restart handler runs only after a task that actually changed the
+    # binary or the registration, so a no-op converge does not bounce a running job.
+    enabled: true

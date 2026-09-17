@@ -73,6 +73,15 @@ Compare links for each version are maintained at the bottom of this file.
   the commands that verify them, and the two deliberate deviations: CodeQL is not a required
   context because its check name is dynamic, and four-eyes review is configured but not yet
   enforceable.
+- `ansible/roles/github-runner` and `ansible/playbooks/runner.yml` — installs the pinned
+  `actions/runner` binary and registers it with the `Via-Vitae` organisation carrying
+  `[self-hosted, linux, x64, eu-infra]`, the execution target ADR-000 and ADR-008 require and
+  that `security.yml` and `deploy.yml` select on. Until it runs those jobs queue forever with
+  `total_count=0` runners. The version and SHA-256 are required pins in
+  `group_vars/ci_runner.yml` (verified before install, the `roles/k3s` supply-chain stance),
+  labels are read from the `/etc/viavitae/runner-labels` fact Terraform writes so there is no
+  third copy, and the runner runs as an unprivileged user on the `mgmt` VLAN where rule X11
+  makes a compromise survivable. This is the implementation of blocking action #9.
 
 ### Changed
 
