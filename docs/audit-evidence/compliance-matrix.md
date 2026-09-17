@@ -1,7 +1,7 @@
 # Compliance Matrix — SOC 2 / ISO 27001 / GDPR
 
-**Version:** 1.0  
-**Date:** 2026-09-08  
+**Version:** 1.1  
+**Date:** 2026-09-17  
 **Status:** Complete  
 **Owner:** `@Via-Vitae/platform`, `@Via-Vitae/security`, `@Via-Vitae/compliance`
 
@@ -60,7 +60,7 @@ This matrix maps each audit-relevant control to the specific evidence artifact(s
 
 | Criteria | Control Description | Evidence Artifact | Status |
 |---|---|---|---|
-| **CC7.1** | Change monitoring | [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml) — drift detection job | ✅ Operating |
+| **CC7.1** | Change monitoring | [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml) — drift detection job | ⏳ Blocked — 0 EU runners ([ADR-000 §382](../adr/ADR-000-governance-sole-owner-four-eyes.md)) |
 | CC7.1 | Alerting | [`monitoring/alertmanager/values.yaml`](../../monitoring/alertmanager/values.yaml), [`monitoring/alert-rules/`](../../monitoring/alert-rules/) | ✅ Operating |
 | **CC7.2** | Log retention policy | [`docs/retention-policy.md`](../retention-policy.md) — DPO sign-off workflow | ⚠️ Pending DPO sign-off |
 | CC7.2 | Log configuration | [`monitoring/loki/values.yaml`](../../monitoring/loki/values.yaml), [`ansible/roles/k3s/templates/config.yaml.j2`](../../ansible/roles/k3s/templates/config.yaml.j2) | ✅ Operating |
@@ -74,9 +74,9 @@ This matrix maps each audit-relevant control to the specific evidence artifact(s
 |---|---|---|---|
 | **CC8.1** | PR gates (CI) | [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) — lint, SAST, Trivy, checksums | ✅ Operating |
 | CC8.1 | PR gates (compliance) | [`.github/workflows/compliance-check.yml`](../../.github/workflows/compliance-check.yml) — licence gate with self-test | ✅ Operating |
-| CC8.1 | PR gates (security) | [`.github/workflows/security.yml`](../../.github/workflows/security.yml) — SOPS verification, Gitleaks | ✅ Operating |
+| CC8.1 | PR gates (security) | [`.github/workflows/security.yml`](../../.github/workflows/security.yml) — SOPS verification, Gitleaks | ⏳ Blocked — 0 EU runners ([ADR-000 §382](../adr/ADR-000-governance-sole-owner-four-eyes.md)) |
 | CC8.1 | PR gates (CodeQL) | [`.github/workflows/codeql.yml`](../../.github/workflows/codeql.yml) — SAST | ✅ Operating |
-| CC8.1 | Prod approval | [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml) — ≥2 reviewers + wait timer | ✅ Operating |
+| CC8.1 | Prod approval | [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml) — ≥2 reviewers + wait timer | ⏳ Blocked — 0 EU runners ([ADR-000 §382](../adr/ADR-000-governance-sole-owner-four-eyes.md)) |
 | CC8.1 | Branch protection | Branch protection config (GitHub settings) | ⏳ Human config |
 
 ### A1: Availability
@@ -152,13 +152,13 @@ This matrix maps each audit-relevant control to the specific evidence artifact(s
 
 | Status | Count | Description |
 |---|---|---|
-| ✅ Operating | 42 | Control is implemented and operating |
+| ✅ Operating | 39 | Control is implemented and operating |
 | ⚠️ Partial | 3 | Control designed but pending human sign-off (DPO retention decision) |
-| ⏳ Pending | 5 | Control requires human action (GitHub secrets, branch protection, DPAs, external auditor) |
+| ⏳ Pending | 8 | Control requires human action (GitHub secrets, branch protection, DPAs, external auditor). **Three of these cannot execute at all**: no EU self-hosted runner is registered, so `security.yml` and every `deploy.yml` job queue indefinitely and have never run once ([ADR-000 §382](../adr/ADR-000-governance-sole-owner-four-eyes.md)). A workflow being committed to the repository is not evidence its control operates. |
 
 **Total controls mapped:** 50  
-**Ready for audit:** 42 (84%)  
-**Pending human action:** 8 (16%)
+**Ready for audit:** 39 (78%)  
+**Pending human action:** 11 (22%)
 
 ---
 
@@ -167,13 +167,14 @@ This matrix maps each audit-relevant control to the specific evidence artifact(s
 | # | Action | Owner | Blocking? | Controls Affected |
 |---|---|---|---|---|
 | 1 | DPO + Security + Platform sign off on retention option (A/B/C) | `@Via-Vitae/dpo` | **Yes** | CC7.2, A.5.28, A.8.15, Art. 5 |
-| 2 | Set `AGE_SECRET_KEY_CI` in GitHub repo secrets | `@Via-Vitae/security` | No | CC8.1, A.8.28 |
-| 3 | Add `security.yml` to branch protection as required check | `@Via-Vitae/platform` | No | CC8.1 |
+| 2 | Set `AGE_SECRET_KEY_CI` in GitHub repo secrets — dependent on #9: Gate 8 writes this key to the runner, so setting it has no effect while no runner exists | `@Via-Vitae/security` | **Yes** | CC8.1, A.8.28 |
+| 3 | Add `security.yml` to branch protection as required check — **must not be actioned before #9**: a required context whose job queues forever blocks every pull request permanently, the same failure mode ADR-000 §5 defers CodeQL for | `@Via-Vitae/platform` | No | CC8.1 |
 | 4 | Update `loki/values.yaml` to use Kubernetes Secret | `@Via-Vitae/platform` | No | CC6.1, A.8.24 |
 | 5 | Execute live DR drill (Q4 2026) | `@Via-Vitae/platform` | No | CC7.4, A.5.29 |
 | 6 | Execute `netpol-probe.sh` against live cluster | `@Via-Vitae/security` | No | CC6.6, A.8.20 |
 | 7 | Execute DPAs with all processors | `@Via-Vitae/legal` | No | Art. 28, A.15.2 |
 | 8 | Engage external auditor (Q1 2027) | `@Via-Vitae/platform` | No | A.5.35 |
+| 9 | Register an EU self-hosted runner with labels `[self-hosted, linux, x64, eu-infra]`. Until it exists, all four `security.yml` SOPS/age gates and every `deploy.yml` job queue indefinitely and never execute, so CC7.1, CC8.1 (security) and CC8.1 (prod approval) are documented but not operating. Must **not** be resolved by relabelling to `ubuntu-latest`: Gate 8 writes `AGE_SECRET_KEY_CI` to the runner, which would place a live private key outside the EEA (QODER.md Rule 7). ADR-000 §382 assigns this to `@JourneyOfLife`. | `@Via-Vitae/platform` | **Yes** | CC7.1, CC8.1, A.8.28 |
 
 ---
 
@@ -182,6 +183,7 @@ This matrix maps each audit-relevant control to the specific evidence artifact(s
 | Version | Date | Changes | Author |
 |---|---|---|---|
 | 1.0 | 2026-09-08 | Initial version — all controls mapped, evidence linked | `@Via-Vitae/platform` |
+| 1.1 | 2026-09-17 | Corrected three `✅ Operating` claims — CC7.1 drift detection, CC8.1 security gates, CC8.1 prod approval — to `⏳ Blocked`. ADR-000 §382 records `actions/runners` returning `total_count=0` and `RUNNER_LABELS` unset, so `security.yml` and `deploy.yml` have never executed; a control that never runs is not operating. Recounted §5 (42→39 operating, 84%→78% audit-ready). Marked action #2 blocking, added the ordering constraint to action #3, and added action #9 (register EU runner). No control was weakened and no historical record was rewritten. | `@JourneyOfLife` |
 
 ---
 

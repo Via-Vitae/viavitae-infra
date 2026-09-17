@@ -104,6 +104,18 @@ _None._
   With `require_code_owner_reviews` and `enforce_admins` both enabled and no resolvable code
   owner, no pull request could be merged through its own controls; merges required suspending
   `enforce_admins`, which disabled the control at the moment it applied.
+- `docs/audit-evidence/compliance-matrix.md` recorded CC7.1 change monitoring, the CC8.1
+  `security.yml` gates and the CC8.1 production-approval gate as `✅ Operating`, while no EU
+  self-hosted runner is registered: `actions/runners` returns `total_count=0`, so every
+  `security.yml` and `deploy.yml` job queues indefinitely and none has ever executed. A
+  control that never runs is not operating, and this matrix is the index an external auditor
+  follows to the evidence, so the overstatement would have been read as a control failure
+  concealed rather than one disclosed. The three rows are now `⏳ Blocked`, the section 5
+  counts are corrected from 42 to 39 operating and from 84% to 78% audit-ready, and the
+  missing runner is recorded as blocking action #9 — with the constraint that it must not be
+  resolved by relabelling those jobs to `ubuntu-latest`, because Gate 8 of `security.yml`
+  writes `AGE_SECRET_KEY_CI` to the runner and a GitHub-hosted runner would place a live age
+  private key outside the EEA.
 
 ### Security
 
