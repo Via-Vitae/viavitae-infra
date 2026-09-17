@@ -14,7 +14,7 @@
 
 ## Context
 
-The network topology document states "Pod Security Standards are set to `restricted` on every namespace" ([`docs/network-topology.md`](../docs/network-topology.md)). However, the actual namespace manifests show that `ingress` and `cert-manager` namespaces use `privileged` PSS labels, not `restricted`.
+The network topology document states "Pod Security Standards are set to `restricted` on every namespace" ([`docs/network-topology.md`](../network-topology.md)). However, the actual namespace manifests show that `ingress` and `cert-manager` namespaces use `privileged` PSS labels, not `restricted`.
 
 This is a **doc⇄code drift** (Finding F-8) and a **QODER.md Rule 8 stop-condition**: weakening PSS labels requires security approval and an ADR.
 
@@ -116,14 +116,14 @@ These capabilities are **not allowed** under `restricted` PSS. cert-manager must
 
 The PSS labels are already set in the namespace manifests:
 
-- [`k8s/namespaces/ingress.yaml`](../k8s/namespaces/ingress.yaml): `pod-security.kubernetes.io/enforce: privileged`
-- [`k8s/namespaces/cert-manager.yaml`](../k8s/namespaces/cert-manager.yaml): `pod-security.kubernetes.io/enforce: privileged`
+- [`k8s/namespaces/ingress.yaml`](../../k8s/namespaces/ingress.yaml): `pod-security.kubernetes.io/enforce: privileged`
+- [`k8s/namespaces/cert-manager.yaml`](../../k8s/namespaces/cert-manager.yaml): `pod-security.kubernetes.io/enforce: privileged`
 
 Kyverno enforces that these labels are present (via `require-pod-security-labels` policy), preventing accidental creation of unlabelled namespaces.
 
 ## References
 
-- [Finding F-8](audit-plan.md#31-findings-summary) (Medium: doc⇄code drift)
-- [QODER.md Rule 8](../QODER.md#rule-8--infrastructure-stop-conditions-viavitae-infra) (PSS weakening requires ADR)
-- [docs/network-topology.md](../docs/network-topology.md) (claims "restricted everywhere" — needs update)
-- [k8s/policies/kyverno/require-labels.yaml](../k8s/policies/kyverno/require-labels.yaml) (Kyverno policy enforcing PSS labels)
+- [Finding F-8](../audit-plan.md#31-findings-summary) (Medium: doc⇄code drift)
+- [QODER.md Rule 8](../../QODER.md#rule-8--infrastructure-stop-conditions-viavitae-infra) (PSS weakening requires ADR)
+- [docs/network-topology.md](../network-topology.md) (claims "restricted everywhere" — needs update)
+- [k8s/policies/kyverno/require-labels.yaml](../../k8s/policies/kyverno/require-labels.yaml) (Kyverno policy enforcing PSS labels)
