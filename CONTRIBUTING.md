@@ -20,7 +20,7 @@ critique work rather than people, and to assume good faith. Harassment, discrimi
 personal attacks are not accepted in any ViaVitae space, including issues, pull requests,
 commit messages and chat.
 
-Report a concern to `legal@viavitae.com`. Reports are handled confidentially. Where a
+Report a concern to `journey4oflife+viavitae.billing@gmail.com`. Reports are handled confidentially. Where a
 repository needs a full standalone code of conduct, one is added as `CODE_OF_CONDUCT.md`
 and owned by `.github/CODEOWNERS`; this section remains the binding baseline until then.
 

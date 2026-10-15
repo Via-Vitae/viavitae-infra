@@ -12,7 +12,7 @@ puts users at risk.
 | Channel | Detail |
 | --- | --- |
 | **GitHub (primary)** | Private vulnerability reporting is **enabled** on every repository in the `Via-Vitae` organisation. Use *Security* -> *Report a vulnerability*. This opens a draft advisory visible only to repository administrators, so the discussion stays private without needing an email channel. |
-| **Email** | `security@viavitae.site` — provisioned once MX records are added to the `viavitae.site` zone. Until the MX is live and the mailbox is confirmed deliverable, this address is not published as a reporting channel and GitHub private vulnerability reporting remains the only channel with a delivery guarantee. The PGP public key for this mailbox is published here once the mailbox is operational. |
+| **Email** | `journey4oflife+viavitae.security@gmail.com` — provisioned once MX records are added to the `viavitae.site` zone. Until the MX is live and the mailbox is confirmed deliverable, this address is not published as a reporting channel and GitHub private vulnerability reporting remains the only channel with a delivery guarantee. The PGP public key for this mailbox is published here once the mailbox is operational. |
 | **Encryption** | A draft advisory is readable only by repository administrators, so a proof of concept may be attached directly. If you would rather not attach exploit code to a GitHub advisory at all, say so in the report and we will arrange an alternative before you send it. |
 
 Include as much of the following as you can:
@@ -169,7 +169,7 @@ upgrade before reporting a finding that has already been fixed.
 | Security function | `@JourneyOfLife`, sole proprietor — through GitHub private vulnerability reporting (see above). |
 | Privacy function | `@JourneyOfLife`, sole proprietor — same channel. Accountability model and its Article 38(6) conflict of interest: [ADR-000](docs/adr/ADR-000-governance-sole-owner-four-eyes.md). |
 | Independent review (four-eyes) | `@IterVitae` — reviews changes and breach records; never commits code. See [ADR-000](docs/adr/ADR-000-governance-sole-owner-four-eyes.md). |
-| Legal | `@JourneyOfLife`, sole proprietor — `security@viavitae.site` once the mailbox is operational (see email row above). |
+| Legal | `@JourneyOfLife`, sole proprietor — `journey4oflife+viavitae.security@gmail.com` once the mailbox is operational (see email row above). |
 
 This policy is reviewed at least annually, and after any Critical severity incident.
 Changes are recorded in `CHANGELOG.md`.

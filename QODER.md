@@ -242,7 +242,7 @@ you did not make — report it as outstanding rather than as done.
 | --- | --- |
 | Instruction is ambiguous | Ask. Do not pick the interpretation that is easiest to implement. |
 | Instruction conflicts with a rule above | Surface the conflict, propose the compliant path, wait. |
-| Instruction conflicts with `SECURITY.md`, `LICENSE` or law | Refuse, explain, escalate to `security@viavitae.com` or `legal@viavitae.com`. |
+| Instruction conflicts with `SECURITY.md`, `LICENSE` or law | Refuse, explain, escalate to `journey4oflife+viavitae.security@gmail.com` or `journey4oflife+viavitae.billing@gmail.com`. |
 | You cannot verify a fact | Say so explicitly. Never present an assumption as a verified result. |
 | You changed more than intended | Report the extra changes; do not hide them in the diff. |
 | Work is incomplete | Say what remains. Never report partial work as finished. |

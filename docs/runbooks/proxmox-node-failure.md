@@ -245,7 +245,7 @@ Within 48 hours, or the incident becomes folklore:
    [dr-drill.md](dr-drill.md) §Findings.
 3. Art. 33 assessment: was personal data unavailable, altered, destroyed or disclosed? An
    availability loss **is** a personal-data breach under Art. 4(12) if it is significant.
-   `dpo@viavitae.com` decides, not the platform team, and the clock started when Phase 0 was
+   `journey4oflife+viavitae.privacy@gmail.com` decides, not the platform team, and the clock started when Phase 0 was
    completed — not when this section is written.
 4. Update this runbook with whatever was wrong in it. A runbook that is not edited after an
    incident is a runbook that will fail the same way next quarter.
