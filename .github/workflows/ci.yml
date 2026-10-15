@@ -528,14 +528,17 @@ jobs:
       - name: Evaluate required gates
         run: |
           set -euo pipefail
-          # A skipped job is not a failure: it means the stack was not present.
-          # A job that did run must have succeeded.
+          # The verdict is computed by the Actions expression engine from the
+          # needs context and passed in as GATE_BAD. Never decide a gate by
+          # grepping toJSON(needs): the serialisation is not contractual, and a
+          # space after the colon makes the old matcher count 0 failures and
+          # report success over failed jobs (viavitae-web PR #32).
           results='${{ toJSON(needs) }}'
-          failed=$(printf '%s' "$results" | grep -o '"result":"failure"' | wc -l || true)
-          cancelled=$(printf '%s' "$results" | grep -o '"result":"cancelled"' | wc -l || true)
-          printf '%s' "$results" | grep -o '"[a-z-]*":{"result":"[a-z]*"' || true
-          if [ "$failed" -ne 0 ] || [ "$cancelled" -ne 0 ]; then
-            echo "::error::CI failed: ${failed} job(s) failed, ${cancelled} cancelled."
+          printf '%s' "$results" | grep -o '"[a-z-]*":\{"result":"[a-z]*"' || true
+          if [[ "${{ env.GATE_BAD }}" == "true" ]]; then
+            echo "::error::A required CI gate failed or was cancelled."
             exit 1
           fi
-          echo "All required gates passed or were legitimately skipped."
+          echo "All CI gates passed or were legitimately skipped."
+        env:
+          GATE_BAD: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
