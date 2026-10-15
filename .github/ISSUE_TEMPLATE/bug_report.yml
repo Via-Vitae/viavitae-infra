@@ -13,7 +13,7 @@ body:
         **Do not file a public issue for a security problem.** Public disclosure before a
         fix is deployed puts users at risk, and personal data may be involved.
 
-        Report privately to **security@viavitae.com**, or use *Security* → *Report a
+        Report privately to **journey4oflife+viavitae.security@gmail.com**, or use *Security* → *Report a
         vulnerability* on the repository. Acknowledgement is within 24 hours and triage
         within 72 hours. See [SECURITY.md](../../SECURITY.md).
 
@@ -215,7 +215,7 @@ body:
         subjects, whether the data left the EEA, whether it is still accessible, and the
         time you first became aware. **Do not include the personal data itself.** Do not
         name data subjects. If you believe personal data has been exposed, also email
-        security@viavitae.com and dpo@viavitae.com immediately — the 72-hour notification
+        journey4oflife+viavitae.security@gmail.com and journey4oflife+viavitae.privacy@gmail.com immediately — the 72-hour notification
         clock under GDPR Article 33 runs from awareness, and it does not wait for triage of
         this issue.
       render: markdown

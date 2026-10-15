@@ -147,7 +147,7 @@ tenant and must be undone.
    succeeded at the database layer can still fail at the application layer if a migration was
    half-applied.
 7. Write the incident record. If personal data was exposed or lost, this is an Art. 33
-   candidate: notify `security@viavitae.com` and `dpo@viavitae.com` **immediately**, not at
+   candidate: notify `journey4oflife+viavitae.security@gmail.com` and `journey4oflife+viavitae.privacy@gmail.com` **immediately**, not at
    the end of the restore. The 72-hour clock runs from awareness, which was step 1.
 
 ### R3 — Restore a VM from `vzdump`
@@ -275,7 +275,7 @@ data. The honest answer has two parts, and giving only the first one is a compli
    `backup/wal-g/schedules/erasure-blocklist.txt` so a routine restore does not resurrect
    erased data. Check that list at R1 step 5 and at R2 step 4 — both procedures say "verify",
    and this is part of verifying.
-5. Notify `dpo@viavitae.com` with the record. It is the DPO's response to the data subject,
+5. Notify `journey4oflife+viavitae.privacy@gmail.com` with the record. It is the DPO's response to the data subject,
    not the platform team's.
 
 ## Failure modes seen here
