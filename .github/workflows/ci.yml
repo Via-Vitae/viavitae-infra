@@ -91,7 +91,7 @@ jobs:
 
           # jq is preinstalled on the ubuntu-latest runner and produces valid JSON
           # for the empty case, which downstream `fromJson` requires.
-          to_json() { jq -cn --args '$ARGS.positional'; }
+          to_json() { jq -cn --args '$ARGS.positional' "$@"; }
           {
             echo "lint_stacks=$(to_json "${lint[@]+"${lint[@]}"}")"
             echo "typecheck_stacks=$(to_json "${typecheck[@]+"${typecheck[@]}"}")"
